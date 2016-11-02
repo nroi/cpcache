@@ -28,5 +28,10 @@ defmodule Cpc.Serializer do
     {:noreply, state}
   end
 
+  def handle_cast({:download_completed, filename}, state = %{}) do
+    Logger.info "download completed: #{filename}"
+    {:noreply, Map.delete(state, filename)}
+  end
+
 
 end

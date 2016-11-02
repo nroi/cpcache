@@ -114,6 +114,7 @@ defmodule Cpc.Downloader do
     :ok = :file.set_cwd(prev_dir)
     _ = Logger.info "Closing file and socket."
     :ok = :gen_tcp.close(sock)
+    :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
     {:noreply, :sock_closed}
   end
 
