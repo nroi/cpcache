@@ -74,7 +74,6 @@ defmodule Cpc.Downloader do
     new_size = size + byte_size(data)
     if new_size == content_length do
       Port.close(port)
-      raise "not implemented yet."
       :ok = :gen_tcp.close(sock)
       {:noreply, :sock_closed}
     else
