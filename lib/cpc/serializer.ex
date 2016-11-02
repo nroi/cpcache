@@ -17,13 +17,15 @@ defmodule Cpc.Serializer do
     # if the filename state is unknown, it will start downloading the file, informing us of the
     # content length. No other downloads will be started while we wait for the content-length to
     # arrive.
-    if filename_status == :unknown do
-      receive do
-        {^from, :content_length, {filename, content_length}} ->
-          {:noreply, Map.put(state, filename, content_length)}
-      after 3000 ->
-          raise "Expected an answer within 3 secs"
-      end
+    case filename_status do
+      :unknown ->
+        receive do
+          {^from, :content_length, {filename, content_length}} ->
+            {:noreply, Map.put(state, filename, content_length)}
+        after 3000 ->
+            raise "Expected an answer within 3 secs"
+        end
+      _ -> {:noreply, state}
     end
   end
 
