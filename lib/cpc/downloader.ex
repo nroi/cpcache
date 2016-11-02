@@ -31,22 +31,6 @@ defmodule Cpc.Downloader do
     Application.get_env(:cpc, :mirror) |> String.replace_suffix("/", "")
   end
 
-  def handle_output(sock, port, expected_size, prev_output \\ <<>>) do
-    receive do
-      {^port, {:data, data}} ->
-        :ok = :gen_tcp.send(sock, data)
-        cat = prev_output <> data
-        if byte_size(cat) == expected_size do
-          :ok
-        else
-          handle_output(sock, port, expected_size, prev_output <> data)
-        end
-      {^port, {:exit_status, status}} ->
-        # TODO we expect tail to never quit by itself -- we should probably kill it ourselves.
-        {:not_found, status}
-    end
-  end
-
   defp header(content_length) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 200 OK\r\n" <>
