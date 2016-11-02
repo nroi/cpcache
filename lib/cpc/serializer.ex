@@ -25,7 +25,6 @@ defmodule Cpc.Serializer do
           raise "Expected an answer within 3 secs"
       end
     end
-    {:noreply, state}
   end
 
   def handle_cast({:download_completed, filename}, state = %{}) do
