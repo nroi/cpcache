@@ -69,7 +69,7 @@ defmodule Cpc.Downloader do
   end
 
 
-  def handle_info({port, {:data, data}}, state = {:tail, sock, {f, n}, content_length, size}) do
+  def handle_info({port, {:data, data}}, {:tail, sock, {f, n}, content_length, size}) do
     :ok = :gen_tcp.send(sock, data)
     new_size = size + byte_size(data)
     if new_size == content_length do
@@ -84,13 +84,13 @@ defmodule Cpc.Downloader do
   end
 
 
-  def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, _}, content_length}) do
+  def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, _}}) do
     :ok = :gen_tcp.send(sock, bin)
     :ok = IO.binwrite(f, bin)
     {:noreply, state}
   end
 
-  def handle_info({:http, {_, :stream_end, _}}, {:download, sock, {f, n}, _}) do
+  def handle_info({:http, {_, :stream_end, _}}, {:download, sock, {f, n}}) do
     :ok = File.close(f)
     basename = Path.basename(n)
     dirname = Path.dirname(n)
@@ -107,8 +107,6 @@ defmodule Cpc.Downloader do
 
   def handle_info({:tcp, _, msg = "GET /" <> rest}, sock) when is_port(sock) do
     _ = Logger.info ">>> #{msg}"
-    {:ok, {ip, _port}} = :inet.peername(sock)
-    _ = Logger.info "ip address: #{inspect ip}"
     uri = case String.split(rest) do
       [uri, _] -> URI.decode(uri)
     end
@@ -125,7 +123,6 @@ defmodule Cpc.Downloader do
         reply_header = header(content_length)
         :ok = :gen_tcp.send(sock, reply_header)
         _ = Logger.info "send header: #{reply_header}"
-        # msg = reply_header <> content
         stream = File.stream!(filename, [], 4096 * 10)
         Enum.each(stream, fn chunk ->
           :ok = :gen_tcp.send(sock, chunk)
@@ -140,7 +137,7 @@ defmodule Cpc.Downloader do
         receive do
           {:downloading, content_length} ->
             setup_port(filename)
-            Logger.info "file #{filename} is already being downloaded."
+            Logger.error "file #{filename} is already being downloaded."
             reply_header = header(content_length)
             :ok = :gen_tcp.send(sock, reply_header)
             {:noreply, {:tail, sock, {file, filename}, content_length}, 0}
@@ -155,7 +152,7 @@ defmodule Cpc.Downloader do
             send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
             :ok = :gen_tcp.send(sock, reply_header)
             _ = Logger.info "sent header: #{reply_header}"
-            {:noreply, {:download, sock, {file, filename}, content_length}}
+            {:noreply, {:download, sock, {file, filename}}}
         end
     end
   end
