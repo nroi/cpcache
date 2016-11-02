@@ -83,7 +83,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-
   def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, _}}) do
     :ok = :gen_tcp.send(sock, bin)
     :ok = IO.binwrite(f, bin)
@@ -140,7 +139,7 @@ defmodule Cpc.Downloader do
             Logger.error "file #{filename} is already being downloaded."
             reply_header = header(content_length)
             :ok = :gen_tcp.send(sock, reply_header)
-            {:noreply, {:tail, sock, {file, filename}, content_length}, 0}
+            {:noreply, {:tail, sock, {file, filename}, content_length, 0}}
           :unknown ->
             _ = Logger.info "serve file #{filename} via HTTP."
             url = Path.join(get_url(), uri)
