@@ -142,7 +142,7 @@ defmodule Cpc.Downloader do
             _ = Logger.info "serve file #{filename} via HTTP."
             url = Path.join(get_url(), uri)
             _ = Logger.warn "URL is #{inspect url}"
-            {:ok, result} = :httpc.request(:get, {to_charlist(url), []}, [], sync: false, stream: :self)
+            {:ok, _} = :httpc.request(:get, {to_charlist(url), []}, [], sync: false, stream: :self)
             content_length = content_length_from_mailbox()
             _ = Logger.info "content length: #{content_length}"
             reply_header = header(content_length)
