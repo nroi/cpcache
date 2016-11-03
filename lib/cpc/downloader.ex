@@ -121,10 +121,7 @@ defmodule Cpc.Downloader do
         reply_header = header(content_length)
         :ok = :gen_tcp.send(sock, reply_header)
         _ = Logger.info "send header: #{reply_header}"
-        stream = File.stream!(filename, [], 4096 * 10)
-        Enum.each(stream, fn chunk ->
-          :ok = :gen_tcp.send(sock, chunk)
-        end)
+        {:ok, ^content_length} = :file.sendfile(filename, sock)
         _ = Logger.info "sent entire file over TCP."
         :ok = :gen_tcp.close(sock)
         _ = Logger.info "tcp socket is closed."
