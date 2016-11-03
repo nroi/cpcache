@@ -61,7 +61,7 @@ defmodule Cpc.Downloader do
 
   defp setup_port(filename) do
     cmd = "/usr/bin/tail"
-    args = ["-f", "-c+0", filename]
+    args = ["-f", "-c", "+0", filename]
     Logger.warn "attempt to start port"
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                            :hide, :use_stdio, :stderr_to_stdout])
@@ -130,7 +130,6 @@ defmodule Cpc.Downloader do
         _ = Logger.info "tcp socket is closed."
         {:stop, :normal, nil}
       {:not_found, filename} ->
-        file = File.open!(filename, [:write])
         send Cpc.Serializer, {self(), :state?, filename}
         receive do
           {:downloading, content_length} ->
@@ -150,6 +149,7 @@ defmodule Cpc.Downloader do
             send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
             :ok = :gen_tcp.send(sock, reply_header)
             _ = Logger.info "sent header: #{reply_header}"
+            file = File.open!(filename, [:write])
             {:noreply, {:download, sock, {file, filename}}}
         end
     end
