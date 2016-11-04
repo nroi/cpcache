@@ -114,7 +114,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:tcp, _, msg = "GET /" <> rest}, sock) when is_port(sock) do
-    _ = Logger.debug "Incoming get request: #{msg}"
+    _ = Logger.debug "Incoming GET request: #{msg}"
     uri = case String.split(rest) do
       [uri, _] -> URI.decode(uri)
     end
