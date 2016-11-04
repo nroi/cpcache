@@ -20,7 +20,6 @@ defmodule Cpc.AcceptorSupervisor do
 
   # wait for new incoming connection request, then spawn a new child.
   def handle_info(:init, listening_sock) do
-    _ = Logger.info "enter accept() loop"
     {:ok, _} = Task.start_link(fn ->
       accept(listening_sock)
     end)
@@ -30,10 +29,10 @@ defmodule Cpc.AcceptorSupervisor do
   def accept(listening_sock) do
     _ = Logger.info "Waiting for a client to accept the connection."
     {:ok, accepting_sock} = :gen_tcp.accept(listening_sock)
-    _ = Logger.warn "new connection, start child…"
+    _ = Logger.debug "new connection, start new child."
     {:ok, child_pid} = Supervisor.start_child(:download_supervisor, [[accepting_sock], []])
     :ok = :gen_tcp.controlling_process(accepting_sock, child_pid)
-    _ = Logger.warn "child started, has new socket."
+    _ = Logger.debug "child started, has new socket."
     accept(listening_sock)
   end
 end
