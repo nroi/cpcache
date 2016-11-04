@@ -60,27 +60,37 @@ defmodule Cpc.Downloader do
   end
 
   defp setup_port(filename) do
-    cmd = "/usr/bin/tail"
-    args = ["-f", "-c", "+0", filename]
+    cmd = "/usr/bin/inotifywait"
+    args = ["-q", "--format", "%e", "--monitor", "-e", "modify", filename]
     Logger.warn "attempt to start port"
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                            :hide, :use_stdio, :stderr_to_stdout])
     Logger.warn "port started"
   end
 
-
-  def handle_info({port, {:data, data}}, {:tail, sock, content_length, size}) do
-    :ok = :gen_tcp.send(sock, data)
-    new_size = size + byte_size(data)
-    if new_size == content_length do
-      Port.close(port)
-      :ok = :gen_tcp.close(sock)
-      {:noreply, :sock_closed}
-    else
-      true = new_size < content_length
-      {:noreply, {:tail, sock, content_length, new_size}}
+  def handle_info({port, {:data, "MODIFY\n" <> _}, },
+                  state = {:tail, sock, {f, n}, content_length, size}) do
+    new_size = File.stat!(n).size
+    case new_size do
+      ^content_length ->
+        Logger.debug "Download from growing file complete."
+        {:ok, _} = :file.sendfile(f, sock, size, new_size - size, [])
+        Port.close(port)
+        :ok = File.close(f)
+        :ok = :gen_tcp.close(sock)
+        {:noreply, :sock_closed}
+      ^size ->
+        # received MODIFY although size is unchanged -- probably because something was written to
+        # the file after the previous MODIFY event and before we have called File.stat.
+        {:noreply, state}
+      _ ->
+        true = new_size < content_length
+        {:ok, _} = :file.sendfile(f, sock, size, new_size - size, [])
+        {:noreply, {:tail, sock, {f, n}, content_length, new_size}}
     end
   end
+
+
 
   def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, _}}) do
     :ok = :gen_tcp.send(sock, bin)
@@ -104,37 +114,37 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:tcp, _, msg = "GET /" <> rest}, sock) when is_port(sock) do
-    _ = Logger.info ">>> #{msg}"
+    _ = Logger.debug "Incoming get request: #{msg}"
     uri = case String.split(rest) do
       [uri, _] -> URI.decode(uri)
     end
-    _ = Logger.info "req filename #{uri}"
+    _ = Logger.info "Process request for filename #{uri}"
     case get_filename(uri) do
       {:database, db_url} ->
-        Logger.info "serve file #{db_url} via http redirect: #{header_301(db_url)}"
+        Logger.debug "Serve database file via http redirect"
         :ok = :gen_tcp.send(sock, header_301(db_url))
         :ok = :gen_tcp.close(sock)
         {:noreply, :sock_closed}
       {:file, filename} ->
-        _ = Logger.info "serve file #{filename} from cache."
+        _ = Logger.info "Serve file #{filename} from cache."
         content_length = File.stat!(filename).size
         reply_header = header(content_length)
         :ok = :gen_tcp.send(sock, reply_header)
-        _ = Logger.info "send header: #{reply_header}"
         {:ok, ^content_length} = :file.sendfile(filename, sock)
-        _ = Logger.info "sent entire file over TCP."
+        _ = Logger.debug "Download from cache complete."
         :ok = :gen_tcp.close(sock)
-        _ = Logger.info "tcp socket is closed."
         {:stop, :normal, nil}
       {:not_found, filename} ->
         send Cpc.Serializer, {self(), :state?, filename}
         receive do
           {:downloading, content_length} ->
             setup_port(filename)
-            Logger.error "file #{filename} is already being downloaded."
+            Logger.info "File #{filename} is already being downloaded, initiate download from " <>
+                        "growing file."
             reply_header = header(content_length)
             :ok = :gen_tcp.send(sock, reply_header)
-            {:noreply, {:tail, sock, content_length, 0}}
+            file = File.open!(filename, [:read, :raw])
+            {:noreply, {:tail, sock, {file, filename}, content_length, 0}}
           :unknown ->
             _ = Logger.info "serve file #{filename} via HTTP."
             url = Path.join(get_url(), uri)
