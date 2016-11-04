@@ -36,6 +36,11 @@ reasons:
   processed. It will then get what has already been received from the local file
   system.
 
+## Dependencies
+Other than Elixir and Erlang, only
+[inotify-tools](https://github.com/rvoicilas/inotify-tools) needs to be
+installed.
+
 ## Configuration
 
 Set the path of the local cache as well as the URI for the remote mirror in
