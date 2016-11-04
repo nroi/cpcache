@@ -136,6 +136,7 @@ defmodule Cpc.Downloader do
         {:stop, :normal, nil}
       {:not_found, filename} ->
         send Cpc.Serializer, {self(), :state?, filename}
+        Logger.debug "send :state? from #{inspect self()}"
         receive do
           {:downloading, content_length} ->
             setup_port(filename)
@@ -193,6 +194,8 @@ defmodule Cpc.Downloader do
         _ = Logger.info "header is: #{inspect header}"
         header = header |> Enum.map(fn {key, val} -> {to_string(key), to_string(val)} end)
         content_length_from_header(header)
+      after 1000 ->
+          raise "Timeout while waiting for response to GET request."
     end
   end
 
