@@ -7,6 +7,10 @@ defmodule Cpc do
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
 
+    # values are loaded once from file in /etc, so that settings are fixed after program startup.
+    [cpc: proplist] = Mix.Config.read!("/etc/cpc.exs")
+    Enum.each(proplist, fn {key, value} -> Application.put_env(:cpc, key, value) end)
+
     port = Application.get_env(:cpc, :port)
     {:ok, listening_sock} = :gen_tcp.listen(port, [:binary, reuseaddr: true, packet: :line])
     Logger.info "listening on #{port}"
