@@ -8,8 +8,10 @@ defmodule Cpc do
     import Supervisor.Spec, warn: false
 
     # values are loaded once from file in /etc, so that settings are fixed after program startup.
-    [cpc: proplist] = Mix.Config.read!("/etc/cpc.exs")
-    Enum.each(proplist, fn {key, value} -> Application.put_env(:cpc, key, value) end)
+    config = YamlElixir.read_from_file("/etc/cpc.yaml")
+    Application.put_env(:cpc, :port, config["port"])
+    Application.put_env(:cpc, :cache_directory, config["cache_directory"])
+    Application.put_env(:cpc, :mirror, config["mirror"])
 
     port = Application.get_env(:cpc, :port)
     {:ok, listening_sock} = :gen_tcp.listen(port, [:binary, reuseaddr: true, packet: :line])
