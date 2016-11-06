@@ -79,7 +79,6 @@ defmodule Cpc.Downloader do
     uri = case path do
       "/" <> rest -> URI.decode(rest)
     end
-    Logger.warn "uri is: #{uri}"
     {:noreply, {sock, :recv_header, %{hs | uri: uri}}}
   end
 
@@ -95,7 +94,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, :http_eoh}, {sock, :recv_header, hs}) do
-    Logger.info "received header entirely: #{inspect hs}"
+    Logger.debug "received header entirely: #{inspect hs}"
     case get_filename(hs.uri) do
       {:database, db_url} ->
         Logger.debug "Serve database file via http redirect"
@@ -149,7 +148,7 @@ defmodule Cpc.Downloader do
         actual_content_length = content_length + bytes_via_cache
         reply_header = header(actual_content_length, full_content_length, hs.range_start)
         :ok = :gen_tcp.send(sock, reply_header)
-        _ = Logger.warn "sent header: #{reply_header}"
+        _ = Logger.debug "sent header: #{reply_header}"
         send_from_cache.()
         :ok = File.close(raw_file)
         file = File.open!(filename, [:append])
@@ -247,7 +246,7 @@ defmodule Cpc.Downloader do
 
 
   def handle_info({:http, _sock, http_packet}, state) do
-    Logger.warn "recvd #{inspect http_packet}"
+    Logger.debug "ignore: #{inspect http_packet}"
     {:noreply, state}
   end
 
