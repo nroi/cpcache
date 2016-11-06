@@ -18,7 +18,7 @@ defmodule Cpc.AcceptorSupervisor do
     {:ok, listening_sock}
   end
 
-  # wait for new incoming connection request, then spawn a new child.
+  # Wait for new incoming connection request, then spawn a new child.
   def handle_info(:init, listening_sock) do
     {:ok, _} = Task.start_link(fn ->
       accept(listening_sock)
@@ -32,6 +32,7 @@ defmodule Cpc.AcceptorSupervisor do
     _ = Logger.debug "new connection, start new child."
     {:ok, child_pid} = Supervisor.start_child(:download_supervisor, [[accepting_sock], []])
     :ok = :gen_tcp.controlling_process(accepting_sock, child_pid)
+    :ok = :inet.setopts(accepting_sock, active: true)
     _ = Logger.debug "child started, has new socket."
     accept(listening_sock)
   end

@@ -14,7 +14,10 @@ defmodule Cpc do
     Application.put_env(:cpc, :mirror, config["mirror"])
 
     port = Application.get_env(:cpc, :port)
-    {:ok, listening_sock} = :gen_tcp.listen(port, [:binary, reuseaddr: true, packet: :line])
+    {:ok, listening_sock} = :gen_tcp.listen(port, [:binary,
+                                                   active: false,
+                                                   reuseaddr: true,
+                                                   packet: :http_bin])
     Logger.info "listening on #{port}"
 
     # Define workers and child supervisors to be supervised
