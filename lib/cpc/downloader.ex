@@ -19,15 +19,18 @@ defmodule Cpc.Downloader do
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
-    file_exists = Enum.member?(File.ls!(dirname), basename)
+    complete_file_exists = Enum.member?(File.ls!(dirname), basename)
+    partial_file_exists = Enum.member?(File.ls!(Path.join(dirname, "downloads")), basename)
     is_database = String.ends_with?(basename, ".db")
-    case {is_database, file_exists} do
-      {true, _} ->
+    case {is_database, complete_file_exists, partial_file_exists} do
+      {true, _, _} ->
         {:database, Path.join(http_source, uri)}
-      {false, false} ->
+      {false, false, false} ->
         {:not_found, Path.join([dirname, "downloads", basename])}
-      {false, true} ->
-        {:file, filename}
+      {false, true, _} ->
+        {:complete_file, filename}
+      {false, false, true} ->
+        {:partial_file, Path.join([dirname, "downloads", basename])}
     end
   end
 
@@ -99,7 +102,7 @@ defmodule Cpc.Downloader do
         :ok = :gen_tcp.send(sock, header_301(db_url))
         :ok = :gen_tcp.close(sock)
         {:noreply, :sock_closed}
-      {:file, filename} ->
+      {:complete_file, filename} ->
         _ = Logger.info "Serve file #{filename} from cache."
         content_length = File.stat!(filename).size
         reply_header = header(content_length, content_length, hs.range_start)
@@ -116,6 +119,38 @@ defmodule Cpc.Downloader do
         _ = Logger.debug "Download from cache complete."
         :ok = :gen_tcp.close(sock)
         {:stop, :normal, nil}
+      {:partial_file, filename} ->
+        _ = Logger.info "Serve file #{filename} from cache and/or http"
+        # TODO just like with :not_found, we should inform the serializer that we are going to
+        # download the file.
+        filesize = File.stat!(filename).size
+        retrieval_start_method = case hs.range_start do
+          nil -> {:file, 0} # send file starting from 0th byte.
+          rs  ->
+            case rs < filesize do
+              true  -> {:file, 3}
+              false -> {:http, hs.range_start}
+            end
+        end
+        {start_http_from_byte, send_data_from_cache} = case retrieval_start_method do
+          {:file, from} ->
+            file = File.open!(filename, [:read, :raw])
+            send_from_cache = fn ->
+              {:ok, _} = :file.sendfile(file, sock, from, filesize - from, [])
+            end
+            {filesize, send_from_cache}
+          {:http, from} -> {from, fn -> :ok end}
+        end
+        headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
+        url = Path.join(get_url(), hs.uri)
+        {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
+        {content_length, full_content_length} = content_length_from_mailbox()
+        reply_header = header(full_content_length, full_content_length, nil)
+        :ok = :gen_tcp.send(sock, reply_header)
+        Logger.warn "sent header: #{reply_header}"
+        send_data_from_cache.()
+        file = File.open!(filename, [:append])
+        {:noreply, {:download, sock, {file, filename}}}
       {:not_found, filename} ->
         send Cpc.Serializer, {self(), :state?, filename}
         Logger.debug "send :state? from #{inspect self()}"
