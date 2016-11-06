@@ -3,7 +3,7 @@ defmodule Cpc.Downloader do
   use GenServer
 
   def start_link([sock], []) do
-    GenServer.start_link(__MODULE__, sock)
+    GenServer.start_link(__MODULE__, {sock, :recv_header, %{uri: nil, range_start: nil}})
   end
 
   # returns {:exists, filename} if it exists, else {:not_found, filename}
@@ -31,16 +31,28 @@ defmodule Cpc.Downloader do
     Application.get_env(:cpc, :mirror) |> String.replace_suffix("/", "")
   end
 
-  defp header(content_length) do
+  defp header(full_content_length, range_start \\ nil) do
+    {content_length_line, content_range_line} = case range_start do
+      nil ->
+        {"Content-Length: #{full_content_length}\r\n", ""}
+      rs  ->
+        range_end = full_content_length - 1
+        content_length = range_end - range_start + 1
+        cl_line = "Content-Length: #{content_length}\r\n"
+        cr_line = "Content-Range: #{rs}-#{range_end}/#{full_content_length}\r\n"
+        {cl_line, cr_line}
+    end
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 200 OK\r\n" <>
     "Server: http-relay\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: application/octet-stream\r\n" <>
-    "Content-Length: #{content_length}\r\n\r\n"
+    content_length_line <>
+    content_range_line <>
+    "\r\n"
   end
 
-  def header_301(location) do
+  defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 301 Moved Permanently\r\n" <>
     "Server: http-relay\r\n" <>
@@ -66,6 +78,72 @@ defmodule Cpc.Downloader do
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                            :hide, :use_stdio, :stderr_to_stdout])
     Logger.warn "port started"
+  end
+
+  def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}}, {sock, :recv_header, hs}) do
+    uri = case path do
+      "/" <> rest -> URI.decode(rest)
+    end
+    Logger.warn "uri is: #{uri}"
+    {:noreply, {sock, :recv_header, %{hs | uri: uri}}}
+  end
+
+  def handle_info({:http, _, {:http_header, _, :Range, _, range}}, {sock, :recv_header, hs}) do
+    Logger.warn "attempt to parse range header"
+    range_start = case range do
+      "bytes=" <> rest ->
+        {start, "-"} = Integer.parse(rest)
+        start
+    end
+    Logger.warn "range starts at #{range_start}"
+    {:noreply, {sock, :recv_header, %{hs | range_start: range_start}}}
+  end
+
+  def handle_info({:http, _, :http_eoh}, {sock, :recv_header, hs}) do
+    Logger.info "received header entirely: #{inspect hs}"
+    case get_filename(hs.uri) do
+      {:database, db_url} ->
+        Logger.debug "Serve database file via http redirect"
+        :ok = :gen_tcp.send(sock, header_301(db_url))
+        :ok = :gen_tcp.close(sock)
+        {:noreply, :sock_closed}
+      {:file, filename} ->
+        _ = Logger.info "Serve file #{filename} from cache."
+        content_length = File.stat!(filename).size
+        # TODO we need to actually start the download only starting from hs.range_start
+        reply_header = header(content_length, hs.range_start)
+        :ok = :gen_tcp.send(sock, reply_header)
+        {:ok, ^content_length} = :file.sendfile(filename, sock)
+        _ = Logger.debug "Download from cache complete."
+        :ok = :gen_tcp.close(sock)
+        {:stop, :normal, nil}
+      {:not_found, filename} ->
+        send Cpc.Serializer, {self(), :state?, filename}
+        Logger.debug "send :state? from #{inspect self()}"
+        receive do
+          {:downloading, content_length} ->
+            setup_port(filename)
+            Logger.info "File #{filename} is already being downloaded, initiate download from " <>
+                        "growing file."
+            reply_header = header(content_length, hs.range_start)
+            :ok = :gen_tcp.send(sock, reply_header)
+            file = File.open!(filename, [:read, :raw])
+            {:noreply, {:tail, sock, {file, filename}, content_length, 0}}
+          :unknown ->
+            _ = Logger.info "serve file #{filename} via HTTP."
+            url = Path.join(get_url(), hs.uri)
+            _ = Logger.warn "URL is #{inspect url}"
+            {:ok, _} = :httpc.request(:get, {to_charlist(url), []}, [], sync: false, stream: :self)
+            content_length = content_length_from_mailbox()
+            _ = Logger.info "content length: #{content_length}"
+            reply_header = header(content_length, hs.range_start)
+            send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
+            :ok = :gen_tcp.send(sock, reply_header)
+            _ = Logger.info "sent header: #{reply_header}"
+            file = File.open!(filename, [:write])
+            {:noreply, {:download, sock, {file, filename}}}
+        end
+    end
   end
 
   def handle_info({:tcp_closed, _}, {:download, _, {_,n}}) do
@@ -121,6 +199,11 @@ defmodule Cpc.Downloader do
     :ok = :gen_tcp.close(sock)
     :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
     {:noreply, :sock_closed}
+  end
+
+  def handle_info({:http, _sock, http_packet}, state) do
+    Logger.warn "recvd #{inspect http_packet}"
+    {:noreply, state}
   end
 
   def handle_info({:tcp, _, msg = "GET /" <> rest}, sock) when is_port(sock) do
