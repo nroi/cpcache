@@ -114,7 +114,7 @@ defmodule Cpc.Downloader do
             Logger.warn "send partial file, from #{rs} until end."
             f = File.open!(filename, [:read, :raw])
             {:ok, _} = :file.sendfile(f, sock, hs.range_start, content_length - rs, [])
-            File.close(f)
+            :ok = File.close(f)
         end
         _ = Logger.debug "Download from cache complete."
         :ok = :gen_tcp.close(sock)
@@ -128,27 +128,32 @@ defmodule Cpc.Downloader do
           nil -> {:file, 0} # send file starting from 0th byte.
           rs  ->
             case rs < filesize do
-              true  -> {:file, 3}
+              true  -> {:file, hs.range_start}
               false -> {:http, hs.range_start}
             end
         end
-        {start_http_from_byte, send_data_from_cache} = case retrieval_start_method do
+        # TODO test this when the stored file is larger/smaller than the file stored on the client
+        # side.
+        raw_file = File.open!(filename, [:read, :raw])
+        # TODO awkward variable names
+        {start_http_from_byte, send_data_from_cache, bytes_via_cache} = case retrieval_start_method do
           {:file, from} ->
-            file = File.open!(filename, [:read, :raw])
             send_from_cache = fn ->
-              {:ok, _} = :file.sendfile(file, sock, from, filesize - from, [])
+              {:ok, _} = :file.sendfile(raw_file, sock, from, filesize - from, [])
             end
-            {filesize, send_from_cache}
-          {:http, from} -> {from, fn -> :ok end}
+            {filesize, send_from_cache, filesize - from}
+          {:http, from} -> {from, fn -> :ok end, 0}
         end
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
         url = Path.join(get_url(), hs.uri)
         {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
         {content_length, full_content_length} = content_length_from_mailbox()
-        reply_header = header(full_content_length, full_content_length, nil)
+        actual_content_length = content_length + bytes_via_cache
+        reply_header = header(actual_content_length, full_content_length, hs.range_start)
         :ok = :gen_tcp.send(sock, reply_header)
-        Logger.warn "sent header: #{reply_header}"
+        _ = Logger.warn "sent header: #{reply_header}"
         send_data_from_cache.()
+        :ok = File.close(raw_file)
         file = File.open!(filename, [:append])
         {:noreply, {:download, sock, {file, filename}}}
       {:not_found, filename} ->
@@ -208,6 +213,7 @@ defmodule Cpc.Downloader do
         {:noreply, state}
       {:error, :closed} ->
         Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+        :ok = File.close(f)
         :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
         {:noreply, :sock_closed}
     end
@@ -271,7 +277,7 @@ defmodule Cpc.Downloader do
     after 1000 ->
         raise "Timeout while waiting for response to GET request."
     end
-    content_length = :proplists.get_value("content-length", header)
+    content_length = :proplists.get_value("content-length", header) |> String.to_integer
     full_content_length = case partial_or_complete do
       :complete ->
         content_length
