@@ -132,16 +132,14 @@ defmodule Cpc.Downloader do
               false -> {:http, hs.range_start}
             end
         end
-        # TODO test this when the stored file is larger/smaller than the file stored on the client
-        # side.
         raw_file = File.open!(filename, [:read, :raw])
         # TODO awkward variable names
-        {start_http_from_byte, send_data_from_cache, bytes_via_cache} = case retrieval_start_method do
+        {start_http_from_byte, send_from_cache, bytes_via_cache} = case retrieval_start_method do
           {:file, from} ->
-            send_from_cache = fn ->
+            send_ = fn ->
               {:ok, _} = :file.sendfile(raw_file, sock, from, filesize - from, [])
             end
-            {filesize, send_from_cache, filesize - from}
+            {filesize, send_, filesize - from}
           {:http, from} -> {from, fn -> :ok end, 0}
         end
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
@@ -152,7 +150,7 @@ defmodule Cpc.Downloader do
         reply_header = header(actual_content_length, full_content_length, hs.range_start)
         :ok = :gen_tcp.send(sock, reply_header)
         _ = Logger.warn "sent header: #{reply_header}"
-        send_data_from_cache.()
+        send_from_cache.()
         :ok = File.close(raw_file)
         file = File.open!(filename, [:append])
         {:noreply, {:download, sock, {file, filename}}}
