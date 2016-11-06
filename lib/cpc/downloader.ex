@@ -68,6 +68,11 @@ defmodule Cpc.Downloader do
     Logger.warn "port started"
   end
 
+  def handle_info({:tcp_closed, _}, {:download, _, {_,n}}) do
+    Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+    {:stop, :normal, nil}
+  end
+
   def handle_info({port, {:data, "MODIFY\n" <> _}, },
                   state = {:tail, sock, {f, n}, content_length, size}) do
     new_size = File.stat!(n).size
@@ -92,10 +97,15 @@ defmodule Cpc.Downloader do
 
 
 
-  def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, _}}) do
-    :ok = :gen_tcp.send(sock, bin)
-    :ok = IO.binwrite(f, bin)
-    {:noreply, state}
+  def handle_info({:http, {_, :stream, bin}}, state = {:download, sock, {f, n}}) do
+    case :gen_tcp.send(sock, bin) do
+      :ok ->
+        :ok = IO.binwrite(f, bin)
+        {:noreply, state}
+      {:error, :closed} ->
+        Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+        {:noreply, :sock_closed}
+    end
   end
 
   def handle_info({:http, {_, :stream_end, _}}, {:download, sock, {f, n}}) do
