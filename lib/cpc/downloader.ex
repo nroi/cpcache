@@ -2,10 +2,6 @@ defmodule Cpc.Downloader do
   require Logger
   use GenServer
 
-  # TODO we need to take care that, when the client downloads a partial file, we will also only
-  # download a partial file (i.e., do not serve a partial file when a client subsequently requests
-    # the full file!).
-
   def start_link([sock], []) do
     GenServer.start_link(__MODULE__, {sock, :recv_header, %{uri: nil, range_start: nil}})
   end
@@ -69,10 +65,9 @@ defmodule Cpc.Downloader do
   defp setup_port(filename) do
     cmd = "/usr/bin/inotifywait"
     args = ["-q", "--format", "%e", "--monitor", "-e", "modify", filename]
-    Logger.warn "attempt to start port"
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                            :hide, :use_stdio, :stderr_to_stdout])
-    Logger.warn "port started"
+    Logger.warn "Port started."
   end
 
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}}, {sock, :recv_header, hs}) do
@@ -83,18 +78,15 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, {:http_header, _, :Range, _, range}}, {sock, :recv_header, hs}) do
-    Logger.warn "attempt to parse range header"
     range_start = case range do
       "bytes=" <> rest ->
         {start, "-"} = Integer.parse(rest)
         start
     end
-    Logger.warn "range starts at #{range_start}"
     {:noreply, {sock, :recv_header, %{hs | range_start: range_start}}}
   end
 
   def handle_info({:http, _, :http_eoh}, {sock, :recv_header, hs}) do
-    Logger.debug "received header entirely: #{inspect hs}"
     case get_filename(hs.uri) do
       {:database, db_url} ->
         Logger.debug "Serve database file via http redirect"
@@ -110,7 +102,7 @@ defmodule Cpc.Downloader do
           nil ->
             {:ok, ^content_length} = :file.sendfile(filename, sock)
           rs ->
-            Logger.warn "send partial file, from #{rs} until end."
+            Logger.debug "send partial file, from #{rs} until end."
             f = File.open!(filename, [:read, :raw])
             {:ok, _} = :file.sendfile(f, sock, hs.range_start, content_length - rs, [])
             :ok = File.close(f)
@@ -132,7 +124,6 @@ defmodule Cpc.Downloader do
             end
         end
         raw_file = File.open!(filename, [:read, :raw])
-        # TODO awkward variable names
         {start_http_from_byte, send_from_cache, bytes_via_cache} = case retrieval_start_method do
           {:file, from} ->
             send_ = fn ->
@@ -155,7 +146,6 @@ defmodule Cpc.Downloader do
         {:noreply, {:download, sock, {file, filename}}}
       {:not_found, filename} ->
         send Cpc.Serializer, {self(), :state?, filename}
-        Logger.debug "send :state? from #{inspect self()}"
         receive do
           {:downloading, content_length} ->
             setup_port(filename)
@@ -168,7 +158,6 @@ defmodule Cpc.Downloader do
           :unknown ->
             _ = Logger.info "serve file #{filename} via HTTP."
             url = Path.join(get_url(), hs.uri)
-            _ = Logger.warn "URL is #{inspect url}"
             headers = case hs.range_start do
               nil ->
                 []
@@ -176,12 +165,10 @@ defmodule Cpc.Downloader do
             end
             {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
             {content_length, full_content_length} = content_length_from_mailbox()
-            _ = Logger.info "content length: #{content_length}"
             reply_header = header(content_length, full_content_length, hs.range_start)
-            Logger.warn "send header: #{inspect reply_header}"
             send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
             :ok = :gen_tcp.send(sock, reply_header)
-            _ = Logger.info "sent header: #{reply_header}"
+            _ = Logger.debug "sent header: #{reply_header}"
             file = File.open!(filename, [:write])
             {:noreply, {:download, sock, {file, filename}}}
         end
@@ -197,7 +184,7 @@ defmodule Cpc.Downloader do
     :ok = :file.set_cwd(Path.join(dirname, ".."))
     :ok = File.ln_s(Path.join(download_dir_basename, basename), basename)
     :ok = :file.set_cwd(prev_dir)
-    _ = Logger.info "Closing file and socket."
+    _ = Logger.debug "Closing file and socket."
     :ok = :gen_tcp.close(sock)
     :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
     {:noreply, :sock_closed}
@@ -246,12 +233,12 @@ defmodule Cpc.Downloader do
 
 
   def handle_info({:http, _sock, http_packet}, state) do
-    Logger.debug "ignore: #{inspect http_packet}"
+    Logger.debug "ignored: #{inspect http_packet}"
     {:noreply, state}
   end
 
   def handle_info({:tcp_closed, _}, :sock_closed) do
-    Logger.info "connection closed."
+    Logger.info "Connection closed."
     {:stop, :normal, nil}
   end
 
@@ -261,7 +248,7 @@ defmodule Cpc.Downloader do
         Logger.debug "Received 200, download entire file via HTTP."
         :complete
       {:hackney_response, _, {:status, 206, _}} ->
-        Logger.info "Received 206, download partial file via HTTP."
+        Logger.debug "Received 206, download partial file via HTTP."
         :partial
       {:hackney_response, _, {:status, num, msg}} ->
         raise "Expected HTTP response 200, got instead: #{num} (#{msg})"

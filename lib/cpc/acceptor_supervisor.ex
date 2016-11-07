@@ -27,9 +27,9 @@ defmodule Cpc.AcceptorSupervisor do
   end
 
   def accept(listening_sock) do
-    _ = Logger.info "Waiting for a client to accept the connection."
+    _ = Logger.debug "Waiting for a client to accept the connection."
     {:ok, accepting_sock} = :gen_tcp.accept(listening_sock)
-    _ = Logger.debug "new connection, start new child."
+    _ = Logger.debug "New connection, start new child."
     {:ok, child_pid} = Supervisor.start_child(:download_supervisor, [[accepting_sock], []])
     :ok = :gen_tcp.controlling_process(accepting_sock, child_pid)
     :ok = :inet.setopts(accepting_sock, active: true)
