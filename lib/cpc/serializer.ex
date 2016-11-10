@@ -22,6 +22,8 @@ defmodule Cpc.Serializer do
         receive do
           {^from, :content_length, {filename, content_length}} ->
             {:noreply, Map.put(state, filename, content_length)}
+          {^from, :not_found} ->
+            {:noreply, state}
         after 3000 ->
             raise "Expected an answer within 3 secs"
         end

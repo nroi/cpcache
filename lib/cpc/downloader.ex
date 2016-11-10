@@ -2,6 +2,15 @@ defmodule Cpc.Downloader do
   require Logger
   use GenServer
 
+  def header_404() do
+    date = to_string(:httpd_util.rfc1123_date)
+    "HTTP/1.1 404 Not Found\r\n" <>
+    "Server: cpc\r\n" <>
+    "Date: #{date}\r\n" <>
+    "Content-Length: 0\r\n" <>
+    "\r\n"
+  end
+
   def start_link([sock], []) do
     GenServer.start_link(__MODULE__, {sock, :recv_header, %{uri: nil, range_start: nil}})
   end
@@ -44,7 +53,7 @@ defmodule Cpc.Downloader do
     end
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 200 OK\r\n" <>
-    "Server: http-relay\r\n" <>
+    "Server: cpc\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: application/octet-stream\r\n" <>
     "Content-Length: #{content_length}\r\n" <>
@@ -156,7 +165,7 @@ defmodule Cpc.Downloader do
             file = File.open!(filename, [:read, :raw])
             {:noreply, {:tail, sock, {file, filename}, content_length, 0}}
           :unknown ->
-            _ = Logger.info "serve file #{filename} via HTTP."
+            _ = Logger.info "Serve file #{filename} via HTTP."
             url = Path.join(get_url(), hs.uri)
             headers = case hs.range_start do
               nil ->
@@ -164,13 +173,24 @@ defmodule Cpc.Downloader do
               rs -> [{"Range", "bytes=#{rs}-"}]
             end
             {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
-            {content_length, full_content_length} = content_length_from_mailbox()
-            reply_header = header(content_length, full_content_length, hs.range_start)
-            send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
-            :ok = :gen_tcp.send(sock, reply_header)
-            _ = Logger.debug "sent header: #{reply_header}"
-            file = File.open!(filename, [:write])
-            {:noreply, {:download, sock, {file, filename}}}
+            case content_length_from_mailbox() do
+              {:ok, {content_length, full_content_length}} ->
+                reply_header = header(content_length, full_content_length, hs.range_start)
+                send Cpc.Serializer, {self(), :content_length, {filename, content_length}}
+                :ok = :gen_tcp.send(sock, reply_header)
+                _ = Logger.debug "sent header: #{reply_header}"
+                file = File.open!(filename, [:write])
+                {:noreply, {:download, sock, {file, filename}}}
+              {:error, :not_found} ->
+                send Cpc.Serializer, {self(), :not_found}
+                reply_header = header_404()
+                :ok = :gen_tcp.send(sock, reply_header)
+                case :gen_tcp.close(sock) do
+                  :ok -> :ok
+                  {:error, :closed} -> :ok
+                end
+                {:stop, :normal, nil}
+            end
         end
     end
   end
@@ -246,31 +266,36 @@ defmodule Cpc.Downloader do
     partial_or_complete = receive do
       {:hackney_response, _, {:status, 200, _}} ->
         Logger.debug "Received 200, download entire file via HTTP."
-        :complete
+        {:ok, :complete}
       {:hackney_response, _, {:status, 206, _}} ->
         Logger.debug "Received 206, download partial file via HTTP."
-        :partial
+        {:ok, :partial}
+      {:hackney_response, _, {:status, 404, _}} ->
+        Logger.warn "Mirror returned 404."
+        {:error, :not_found}
       {:hackney_response, _, {:status, num, msg}} ->
         raise "Expected HTTP response 200, got instead: #{num} (#{msg})"
     after 1000 ->
         raise "Timeout while waiting for response to GET request."
     end
-    header = receive do
-      {:hackney_response, _, {:headers, proplist}} ->
-        proplist |> Enum.map(fn {key, val} -> {String.downcase(key), String.downcase(val)} end)
-    after 1000 ->
-        raise "Timeout while waiting for response to GET request."
+    with {:ok, status} <- partial_or_complete do
+      header = receive do
+        {:hackney_response, _, {:headers, proplist}} ->
+          proplist |> Enum.map(fn {key, val} -> {String.downcase(key), String.downcase(val)} end)
+      after 1000 ->
+          raise "Timeout while waiting for response to GET request."
+      end
+      content_length = :proplists.get_value("content-length", header) |> String.to_integer
+      full_content_length = case status do
+        :complete ->
+          content_length
+        :partial ->
+          header_line = :proplists.get_value("content-range", header)
+          [_, full_length] = String.split(header_line, "/")
+          String.to_integer(full_length)
+      end
+      {:ok, {content_length, full_content_length}}
     end
-    content_length = :proplists.get_value("content-length", header) |> String.to_integer
-    full_content_length = case partial_or_complete do
-      :complete ->
-        content_length
-      :partial ->
-        header_line = :proplists.get_value("content-range", header)
-        [_, full_length] = String.split(header_line, "/")
-        String.to_integer(full_length)
-    end
-    {content_length, full_content_length}
   end
 
 end

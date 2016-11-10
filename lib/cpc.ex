@@ -18,7 +18,7 @@ defmodule Cpc do
                                                    active: false,
                                                    reuseaddr: true,
                                                    packet: :http_bin])
-    Logger.info "listening on #{port}"
+    Logger.info "Listening on port #{port}"
 
     # Define workers and child supervisors to be supervised
     children = [
