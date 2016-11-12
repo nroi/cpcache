@@ -9,27 +9,31 @@ defmodule Cpc do
 
     # values are loaded once from file in /etc, so that settings are fixed after program startup.
     config = YamlElixir.read_from_file("/etc/cpc.yaml")
-    Application.put_env(:cpc, :port, config["port"])
-    Application.put_env(:cpc, :cache_directory, config["cache_directory"])
-    Application.put_env(:cpc, :mirror, config["mirror"])
+    arm_config = case config["arm"] do
+      nil -> nil
+      c -> {:arm_listener, [arch: :arm,
+                            port: c["port"],
+                            mirror: c["url"],
+                            cache_directory: c["cache_directory"]]}
+    end
+    x86_config = case config["x86"] do
+      nil -> nil
+      c -> {:x86_listener, [arch: :x86,
+                            port: c["port"],
+                            mirror: c["url"],
+                            cache_directory: c["cache_directory"]]}
+    end
 
-    port = Application.get_env(:cpc, :port)
-    {:ok, listening_sock} = :gen_tcp.listen(port, [:binary,
-                                                   active: false,
-                                                   reuseaddr: true,
-                                                   packet: :http_bin])
-    Logger.info "Listening on port #{port}"
+    arch_configs = Enum.filter([arm_config, x86_config], &(&1 != nil))
 
-    # Define workers and child supervisors to be supervised
-    children = [
-      # Starts a worker by calling: Cpc.Worker.start_link(arg1, arg2, arg3)
-      worker(Cpc.AcceptorSupervisor, [listening_sock]),
-      worker(Cpc.Serializer, []),
-    ]
+    children = Enum.map(arch_configs, fn {name, opts} ->
+      supervisor(Cpc.Listener, [opts], name: name, id: name)
+    end)
+
 
     # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
     # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: Cpc.Supervisor]
+    opts = [strategy: :one_for_one, name: __MODULE__]
     Supervisor.start_link(children, opts)
   end
 end
