@@ -23,16 +23,22 @@ defmodule Cpc.Serializer do
           {^from, :content_length, {filename, content_length}} ->
             {:noreply, Map.put(state, filename, content_length)}
           {^from, :not_found} ->
+            # Was not able to GET this file (server replied 404)
             {:noreply, state}
-        after 3000 ->
-            raise "Expected an answer within 3 seconds."
+          {^from, :complete} ->
+            # We have previously assumed that the locally stored file is incomplete, but it turns
+            # out the file was already complete. Now new download is started, state remains
+            # unchanged.
+            {:noreply, state}
+        after 5000 ->
+            raise "Expected an answer within 5 seconds."
         end
       _ -> {:noreply, state}
     end
   end
 
-  def handle_cast({:download_completed, filename}, state = %{}) do
-    Logger.info "Download completed: #{filename}"
+  def handle_cast({:download_ended, filename}, state = %{}) do
+    Logger.info "Download ended: #{filename}"
     {:noreply, Map.delete(state, filename)}
   end
 
