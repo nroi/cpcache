@@ -24,8 +24,8 @@ defmodule Cpc.Listener do
     children = [
       worker(Cpc.AcceptorSupervisor,
              [listening_sock, mirror, arch, cache_directory],
-             name: acceptor_name),
-      worker(Cpc.Serializer, [serializer_name]),
+             id: acceptor_name),
+      worker(Cpc.Serializer, [serializer_name], id: serializer_name),
     ]
     supervise(children, strategy: :one_for_one)
   end

@@ -7,14 +7,14 @@ defmodule Cpc.Serializer do
   end
 
   def handle_info({from, :state?, filename}, state = %{}) do
-    # the downloader has received a GET request which is neither a database nor a locally
+    # The downloader has received a GET request which is neither a database nor a locally
     # available file. Hence, it needs to check if someone is already downloading this file.
     filename_status = case state[filename] do
       nil -> :unknown
       content_length -> {:downloading, content_length}
     end
     send from, filename_status
-    # if the filename state is unknown, it will start downloading the file, informing us of the
+    # If the filename state is unknown, it will start downloading the file, informing us of the
     # content length. No other downloads will be started while we wait for the content-length to
     # arrive.
     case filename_status do
@@ -25,7 +25,7 @@ defmodule Cpc.Serializer do
           {^from, :not_found} ->
             {:noreply, state}
         after 3000 ->
-            raise "Expected an answer within 3 secs"
+            raise "Expected an answer within 3 seconds."
         end
       _ -> {:noreply, state}
     end
@@ -35,6 +35,5 @@ defmodule Cpc.Serializer do
     Logger.info "Download completed: #{filename}"
     {:noreply, Map.delete(state, filename)}
   end
-
 
 end

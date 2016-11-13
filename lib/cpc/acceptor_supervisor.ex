@@ -9,15 +9,11 @@ defmodule Cpc.AcceptorSupervisor do
       :arm -> {:arm_supervisor, :arm_serializer}
     end
     children = [
-      worker(Cpc.Downloader, [mirror, serializer], restart: :transient, max_restarts: 0)
+      worker(Cpc.Downloader, [mirror, serializer], restart: :temporary)
     ]
     opts = [strategy: :simple_one_for_one]
     {:ok, sup_pid} = Supervisor.start_link(children, opts)
-    Logger.info "sup with pid: #{inspect sup_pid}"
-    # Process.register(sup_pid, :download_supervisor)
-    GenServer.start_link(__MODULE__,
-                         {listening_sock, sup_pid, cache_directory},
-                         name: name)
+    GenServer.start_link(__MODULE__, {listening_sock, sup_pid, cache_directory}, name: name)
   end
 
   def init(listening_sock) do
@@ -38,7 +34,7 @@ defmodule Cpc.AcceptorSupervisor do
     {:ok, child_pid} = Supervisor.start_child(sup_pid, [accepting_sock, cache_directory])
     :ok = :gen_tcp.controlling_process(accepting_sock, child_pid)
     :ok = :inet.setopts(accepting_sock, active: true)
-    _ = Logger.debug "child started, has new socket."
+    _ = Logger.debug "Child started, has new socket."
     accept(listening_sock, sup_pid, cache_directory)
   end
 end

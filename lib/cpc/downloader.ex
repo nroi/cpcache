@@ -17,12 +17,9 @@ defmodule Cpc.Downloader do
   end
 
 
-  # TODO we still have two downlaods if one client downloads the file from start, the other client
+  # TODO we still have two downloads if one client downloads the file from start, the other client
   # is using content ranges.
 
-  # returns {:exists, filename} if it exists, else {:not_found, filename}
-  # when {:not_found, filename} is returned, filename is the file where the file is meant to be
-  # stored in before symlinking.
   defp get_filename(uri, mirror, cache_dir) do
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
@@ -42,7 +39,11 @@ defmodule Cpc.Downloader do
     end
   end
 
-  defp header(content_length, full_content_length, range_start \\ nil) do
+  defp header(full_content_length, range_start) do
+    content_length = case range_start do
+      nil -> full_content_length
+      rs  -> full_content_length - rs
+    end
     content_range_line = case range_start do
       nil ->
         ""
@@ -63,11 +64,12 @@ defmodule Cpc.Downloader do
   defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 301 Moved Permanently\r\n" <>
-    "Server: http-relay\r\n" <>
+    "Server: cpc\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: text/html\r\n" <>
     "Content-Length: 0\r\n" <>
-    "Location: #{location}\r\n\r\n"
+    "Location: #{location}\r\n" <>
+    "\r\n"
   end
 
   defp header_404() do
@@ -84,10 +86,10 @@ defmodule Cpc.Downloader do
     args = ["-q", "--format", "%e", "--monitor", "-e", "modify", filename]
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                            :hide, :use_stdio, :stderr_to_stdout])
-    Logger.warn "Port started."
+    Logger.debug "Port started."
   end
 
-  defp download_via_http(filename, state, hs) do
+  defp serve_via_http(filename, state, hs) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     url = state.mirror |> String.replace_suffix("/", "") |> Path.join(hs.uri)
     headers = case hs.range_start do
@@ -97,11 +99,11 @@ defmodule Cpc.Downloader do
     end
     {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
     case content_length_from_mailbox() do
-      {:ok, {content_length, full_content_length}} ->
-        reply_header = header(content_length, full_content_length, hs.range_start)
-        send state.serializer, {self(), :content_length, {filename, content_length}}
+      {:ok, {_, full_content_length}} ->
+        reply_header = header(full_content_length, hs.range_start)
+        send state.serializer, {self(), :content_length, {filename, full_content_length}}
         :ok = :gen_tcp.send(state.sock, reply_header)
-        _ = Logger.debug "sent header: #{reply_header}"
+        _ = Logger.debug "Sent header: #{reply_header}"
         file = File.open!(filename, [:write])
         {:noreply, %{state | action: {:download, state.sock, {file, filename}}}}
       {:error, :not_found} ->
@@ -116,6 +118,98 @@ defmodule Cpc.Downloader do
     end
   end
 
+  defp serve_via_redirect(db_url, sock) do
+    _ = Logger.debug "Serve database file via http redirect"
+    :ok = :gen_tcp.send(sock, header_301(db_url))
+    :ok = :gen_tcp.close(sock)
+    {:noreply, :sock_closed}
+  end
+
+  defp serve_via_cache(filename, sock, range_start) do
+    _ = Logger.info "Serve file #{filename} from cache."
+    content_length = File.stat!(filename).size
+    reply_header = header(content_length, range_start)
+    :ok = :gen_tcp.send(sock, reply_header)
+    case range_start do
+      nil ->
+        {:ok, ^content_length} = :file.sendfile(filename, sock)
+      rs ->
+        Logger.debug "Send partial file, from #{rs} until end."
+        f = File.open!(filename, [:read, :raw])
+        {:ok, _} = :file.sendfile(f, sock, range_start, content_length - rs, [])
+        :ok = File.close(f)
+    end
+    _ = Logger.debug "Download from cache complete."
+    :ok = :gen_tcp.close(sock)
+    {:stop, :normal, nil}
+  end
+
+  defp serve_via_growing_file(filename, state, range_start, full_content_length) do
+    setup_port(filename)
+    Logger.info "File #{filename} is already being downloaded, initiate download from " <>
+                "growing file."
+    reply_header = header(full_content_length, range_start)
+    :ok = :gen_tcp.send(state.sock, reply_header)
+    file = File.open!(filename, [:read, :raw])
+    {:noreply, %{state | action: {:inotify, {file, filename}, full_content_length, 0}}}
+  end
+
+  defp serve_via_cache_http(state, filename, hs) do
+    # A partial file already exists on the filesystem, but this file was saved in a previous
+    # download process that did not finish -- the file is not in the process of being downloaded.
+    # We serve the beginning of the file from the cache, if possible. If the requester requested a
+    # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
+    # via HTTP.
+    send state.serializer, {self(), :state?, filename}
+    receive do
+      {:downloading, full_content_length} ->
+        serve_via_growing_file(filename, state, hs.range_start, full_content_length)
+      :unknown ->
+        _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
+        filesize = File.stat!(filename).size
+        retrieval_start_method = case hs.range_start do
+          nil -> {:file, 0} # send file starting from 0th byte.
+          rs  ->
+            case rs < filesize do
+              true  -> {:file, hs.range_start}
+              false -> {:http, hs.range_start}
+            end
+        end
+        raw_file = File.open!(filename, [:read, :raw])
+        {start_http_from_byte, send_from_cache} = case retrieval_start_method do
+          {:file, from} ->
+            send_ = fn ->
+              {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
+            end
+            {filesize, send_}
+          {:http, from} -> {from, fn -> :ok end}
+        end
+        headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
+        url = Path.join(state.mirror, hs.uri)
+        {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
+        case content_length_from_mailbox() do
+          {:ok, {_, full_content_length}} ->
+            file = File.open!(filename, [:append])
+            send state.serializer, {self(), :content_length, {filename, full_content_length}}
+            reply_header = header(full_content_length, hs.range_start)
+            :ok = :gen_tcp.send(state.sock, reply_header)
+            _ = Logger.debug "Sent header: #{reply_header}"
+            send_from_cache.()
+            :ok = File.close(raw_file)
+            {:noreply, %{state | action: {:download, state.sock, {file, filename}}}}
+          {:error, :not_found} ->
+            send state.serializer, {self(), :not_found}
+            reply_header = header_404()
+            :ok = :gen_tcp.send(state.sock, reply_header)
+            _ = Logger.debug "Sent header: #{reply_header}"
+            case :gen_tcp.close(state.sock) do
+              :ok -> :ok
+              {:error, :closed} -> :ok
+            end
+            {:stop, :normal, nil}
+        end
+    end
+  end
 
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
                   state = %Dload{action: {:recv_header, hs}}) do
@@ -136,108 +230,26 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, :http_eoh}, state = %Dload{action: {:recv_header, hs}}) do
-    # TODO this is a mess… refactor!
     case get_filename(hs.uri, state.mirror, state.cache_directory) do
       {:database, db_url} ->
-        Logger.debug "Serve database file via http redirect"
-        :ok = :gen_tcp.send(state.sock, header_301(db_url))
-        :ok = :gen_tcp.close(state.sock)
-        {:noreply, :sock_closed}
+        serve_via_redirect(db_url, state.sock)
       {:complete_file, filename} ->
-        _ = Logger.info "Serve file #{filename} from cache."
-        content_length = File.stat!(filename).size
-        reply_header = header(content_length, content_length, hs.range_start)
-        :ok = :gen_tcp.send(state.sock, reply_header)
-        case hs.range_start do
-          nil ->
-            {:ok, ^content_length} = :file.sendfile(filename, state.sock)
-          rs ->
-            Logger.debug "send partial file, from #{rs} until end."
-            f = File.open!(filename, [:read, :raw])
-            {:ok, _} = :file.sendfile(f, state.sock, hs.range_start, content_length - rs, [])
-            :ok = File.close(f)
-        end
-        _ = Logger.debug "Download from cache complete."
-        :ok = :gen_tcp.close(state.sock)
-        {:stop, :normal, nil}
+        serve_via_cache(filename, state.sock, hs.range_start)
       {:partial_file, filename} ->
-        send state.serializer, {self(), :state?, filename}
-        receive do
-          {:downloading, content_length} ->
-            setup_port(filename)
-            Logger.info "File #{filename} is already being downloaded, initiate download from " <>
-                        "growing file."
-            reply_header = header(content_length, hs.range_start)
-            :ok = :gen_tcp.send(state.sock, reply_header)
-            file = File.open!(filename, [:read, :raw])
-            {:noreply, %{state | action: {:tail, state.sock, {file, filename}, content_length, 0}}}
-          :unknown ->
-            _ = Logger.info "Serve file #{filename} from cache and/or http"
-            # TODO just like with :not_found, we should inform the serializer that we are going to
-            # download the file.
-            filesize = File.stat!(filename).size
-            retrieval_start_method = case hs.range_start do
-              nil -> {:file, 0} # send file starting from 0th byte.
-              rs  ->
-                case rs < filesize do
-                  true  -> {:file, hs.range_start}
-                  false -> {:http, hs.range_start}
-                end
-            end
-            raw_file = File.open!(filename, [:read, :raw])
-            {start_http_from_byte, send_from_cache, bytes_via_cache} = case retrieval_start_method do
-              {:file, from} ->
-                send_ = fn ->
-                  {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
-                end
-                {filesize, send_, filesize - from}
-              {:http, from} -> {from, fn -> :ok end, 0}
-            end
-            headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
-            url = Path.join(state.mirror, hs.uri)
-            {:ok, _} = :hackney.request(:get, url, headers, "", [:async])
-            case content_length_from_mailbox() do
-              {:ok, {content_length, full_content_length}} ->
-                actual_content_length = content_length + bytes_via_cache
-                reply_header = header(actual_content_length, full_content_length, hs.range_start)
-                :ok = :gen_tcp.send(state.sock, reply_header)
-                _ = Logger.debug "sent header: #{reply_header}"
-                send_from_cache.()
-                :ok = File.close(raw_file)
-                file = File.open!(filename, [:append])
-                {:noreply, %{state | action: {:download, state.sock, {file, filename}}}}
-              {:error, :not_found} ->
-                # 404 after we have alread started sending data to the client…
-                # Just closing the socket is not the best solution, but we cannot reply with 404 since
-                # we have already sent 200.
-                case :gen_tcp.close(state.sock) do
-                  :ok -> :ok
-                  {:error, :closed} -> :ok
-                end
-                {:stop, :normal, nil}
-            end
-        end
+        serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
-        # TODO code duplication: is it even possible for this code to run? I.e., is it possible
-        # that neither the symlink nor the actual file in downloads/ exists, but another process is
-        # already downloading it? if so, can we avoid that somehow?
         send state.serializer, {self(), :state?, filename}
         receive do
           {:downloading, content_length} ->
-            setup_port(filename)
-            Logger.info "File #{filename} is already being downloaded, initiate download from " <>
-                        "growing file."
-            reply_header = header(content_length, hs.range_start)
-            :ok = :gen_tcp.send(state.sock, reply_header)
-            file = File.open!(filename, [:read, :raw])
-            {:noreply, %{state | action: {:tail, state.sock, {file, filename}, content_length, 0}}}
+            serve_via_growing_file(filename, state, hs.range_start, content_length)
           :unknown ->
-            download_via_http(filename, state, hs)
+            serve_via_http(filename, state, hs)
         end
     end
   end
 
-  def handle_info({:hackney_response, _, :done}, %Dload{action: {:download, sock, {f, n}}}) do
+  def handle_info({:hackney_response, _, :done},
+                  state = %Dload{action: {:download, sock, {f, n}}}) do
     :ok = File.close(f)
     basename = Path.basename(n)
     dirname = Path.dirname(n)
@@ -248,7 +260,7 @@ defmodule Cpc.Downloader do
     :ok = :file.set_cwd(prev_dir)
     _ = Logger.debug "Closing file and socket."
     :ok = :gen_tcp.close(sock)
-    :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
+    :ok = GenServer.cast(state.serializer, {:download_completed, n})
     {:noreply, :sock_closed}
   end
 
@@ -260,27 +272,33 @@ defmodule Cpc.Downloader do
       {:error, :closed} ->
         Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
         :ok = File.close(f)
-        :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
+        :ok = GenServer.cast(state.serializer, {:download_completed, n})
         {:noreply, :sock_closed}
     end
   end
 
-  def handle_info({:tcp_closed, _}, %Dload{action: {:download, _, {_,n}}}) do
+  def handle_info({:tcp_closed, _}, state = %Dload{action: {:download, _, {_,n}}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
-    :ok = GenServer.cast(Cpc.Serializer, {:download_completed, n})
+    :ok = GenServer.cast(state.serializer, {:download_completed, n})
+    {:stop, :normal, nil}
+  end
+
+  def handle_info({:tcp_closed, _}, state = %Dload{action: {:inotify, {_, n}, _, _}}) do
+    Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+    :ok = GenServer.cast(state.serializer, {:download_completed, n})
     {:stop, :normal, nil}
   end
 
   def handle_info({port, {:data, "MODIFY\n" <> _}, },
-                  state = %Dload{action: {:tail, sock, {f, n}, content_length, size}}) do
+                  state = %Dload{action: {:inotify, {f, n}, content_length, size}}) do
     new_size = File.stat!(n).size
     case new_size do
       ^content_length ->
         Logger.debug "Download from growing file complete."
-        {:ok, _} = :file.sendfile(f, sock, size, new_size - size, [])
+        {:ok, _} = :file.sendfile(f, state.sock, size, new_size - size, [])
         Port.close(port)
         :ok = File.close(f)
-        :ok = :gen_tcp.close(sock)
+        :ok = :gen_tcp.close(state.sock)
         {:noreply, :sock_closed}
       ^size ->
         # received MODIFY although size is unchanged -- probably because something was written to
@@ -288,11 +306,10 @@ defmodule Cpc.Downloader do
         {:noreply, state}
       _ ->
         true = new_size < content_length
-        {:ok, _} = :file.sendfile(f, sock, size, new_size - size, [])
-        {:noreply, %{state | action: {:tail, sock, {f, n}, content_length, new_size}}}
+        {:ok, _} = :file.sendfile(f, state.sock, size, new_size - size, [])
+        {:noreply, %{state | action: {:inotify, {f, n}, content_length, new_size}}}
     end
   end
-
 
   def handle_info({:http, _sock, http_packet}, state) do
     Logger.debug "ignored: #{inspect http_packet}"
