@@ -129,7 +129,7 @@ defmodule Cpc.Downloader do
         :ok = wait_until_file_exists(filename)
         file = File.open!(filename, [:read, :raw])
         :erlang.send_after(@interval, self(), :timer)
-        action = {:inotify, {file, filename}, full_content_length, 0}
+        action = {:filewatch, {file, filename}, full_content_length, 0}
         {:noreply, %{state | req_id: req_id, action: action}}
       {:error, :not_found} ->
         send state.serializer, {self(), :not_found}
@@ -176,7 +176,7 @@ defmodule Cpc.Downloader do
     reply_header = header(full_content_length, range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
     file = File.open!(filename, [:read, :raw])
-    {:noreply, %{state | action: {:inotify, {file, filename}, full_content_length, 0}}}
+    {:noreply, %{state | action: {:filewatch, {file, filename}, full_content_length, 0}}}
   end
 
   defp serve_via_cache_http(state, filename, hs) do
@@ -224,7 +224,7 @@ defmodule Cpc.Downloader do
             send_from_cache.()
             :ok = File.close(raw_file)
             :erlang.send_after(@interval, self(), :timer)
-            action = {:inotify, {file, filename}, full_content_length, start_http_from_byte}
+            action = {:filewatch, {file, filename}, full_content_length, start_http_from_byte}
             {:noreply, %{state | req_id: req_id, action: action}}
           {:error, :not_found} ->
             send state.serializer, {self(), :not_found}
@@ -301,7 +301,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:ibrowse_async_response_end, req_id},
-                  state = %Dload{action: {:inotify, {f, n}, content_length, size}}) do
+                  state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     ^content_length = File.stat!(n).size
     Logger.debug "Download from growing file complete."
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
@@ -315,7 +315,7 @@ defmodule Cpc.Downloader do
   end
 
 
-  # TODO either the {:download… or {:inotify… state should become obsolete
+  # TODO either the {:download… or {:filewatch… state should become obsolete
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:download, _, {_,n}}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
@@ -323,14 +323,14 @@ defmodule Cpc.Downloader do
     {:stop, :normal, nil}
   end
 
-  def handle_info({:tcp_closed, _}, state = %Dload{action: {:inotify, {_, n}, _, _}}) do
+  def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
     :ok = GenServer.cast(state.serializer, {:download_ended, n})
     {:stop, :normal, nil}
   end
 
-  def handle_info(:timer, state = %Dload{action: {:inotify, {f, n}, content_length, size}}) do
+  def handle_info(:timer, state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     new_size = File.stat!(n).size
     case new_size do
       ^content_length ->
@@ -347,7 +347,7 @@ defmodule Cpc.Downloader do
         true = new_size < content_length
         {:ok, _} = :file.sendfile(f, state.sock, size, new_size - size, [])
         :erlang.send_after(@interval, self(), :timer)
-        {:noreply, %{state | action: {:inotify, {f, n}, content_length, new_size}}}
+        {:noreply, %{state | action: {:filewatch, {f, n}, content_length, new_size}}}
     end
   end
 
