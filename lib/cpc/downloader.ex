@@ -151,7 +151,7 @@ defmodule Cpc.Downloader do
   end
 
   defp serve_via_cache(filename, sock, range_start) do
-    _ = Logger.info "Serve file #{filename} from cache."
+    _ = Logger.info "Serve file from cache: #{filename}"
     content_length = File.stat!(filename).size
     reply_header = header(content_length, range_start)
     :ok = :gen_tcp.send(sock, reply_header)
