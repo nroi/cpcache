@@ -51,6 +51,7 @@ defmodule Cpc.Downloader do
   def wait_until_file_exists(filepath) do
     # meant to be called after executing the GET request.
     if !File.exists?(filepath) do
+      Logger.debug "Wait until file is created…"
       {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
       expected_output = "CREATE " <> basename <> "\n"
       setup_port(dir)
@@ -126,7 +127,9 @@ defmodule Cpc.Downloader do
         send state.serializer, {self(), :content_length, {filename, full_content_length}}
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        :ok = wait_until_file_exists(filename)
+        # TODO for debugging purposes, just to see how large the timeout should be set.
+        {microsecs, :ok} = :timer.tc(__MODULE__, :wait_until_file_exists, [filename])
+        Logger.debug "Waited #{microsecs / 1000} ms for file creation."
         file = File.open!(filename, [:read, :raw])
         :erlang.send_after(@interval, self(), :timer)
         action = {:filewatch, {file, filename}, full_content_length, 0}
