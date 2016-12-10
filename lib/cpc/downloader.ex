@@ -43,7 +43,7 @@ defmodule Cpc.Downloader do
 
   defp setup_port(filename) do
     cmd = "/usr/bin/inotifywait"
-    args = ["-q", "--format", "%e %f", "--monitor", "-e", "create", filename]
+    args = ["-q", "--format", "%e %f", "-e", "create", filename]
     _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
                                          :hide, :use_stdio, :stderr_to_stdout])
   end
@@ -61,7 +61,8 @@ defmodule Cpc.Downloader do
           {port, {:data, ^expected_output}} ->
             true = Port.close(port)
             :ok
-      after 500 ->
+      # TODO timeout increased for debugging purposes -- should not take so long.
+      after 7000 ->
           raise "Timeout while waiting for file #{filepath}"
       end
     else
