@@ -61,6 +61,8 @@ defmodule Cpc.Downloader do
           {port, {:data, ^expected_output}} ->
             true = Port.close(port)
             :ok
+          msg ->
+            raise "Unexpected message: #{inspect msg}"
       # TODO timeout increased for debugging purposes -- should not take so long.
       after 7000 ->
           raise "Timeout while waiting for file #{filepath}"
