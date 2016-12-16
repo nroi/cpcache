@@ -447,9 +447,13 @@ defmodule Cpc.Downloader do
   def package_directories(parent) do
     File.ls!(parent)
     |> Enum.map(&Path.join(parent, &1))
-    |> Enum.filter(fn file -> File.dir?(file) && contains_package(file) end)
+    |> Enum.filter(&File.dir?/1)
     |> Enum.flat_map(fn path ->
-      [path | package_directories(path)]
+      if contains_package(path) do
+        [path | package_directories(path)]
+      else
+        package_directories(path)
+      end
     end)
   end
 
