@@ -31,7 +31,7 @@ defmodule Cpc.Purger do
   # purges all older packages for all repositories (core, extra, community, …)
   def purge(cache_directory, keep) do
     commands = Enum.map(package_directories(cache_directory), fn path ->
-      {"/usr/bin/paccache", ["-c", path, "-k", to_string(keep), "--nocolor"]}
+      {"/usr/bin/paccache", ["-r", "-c", path, "-k", to_string(keep), "--nocolor"]}
     end)
     Enum.each(commands, fn {command, args} ->
       {output, 0} = System.cmd(command, args)
