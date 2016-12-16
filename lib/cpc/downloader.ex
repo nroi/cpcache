@@ -7,14 +7,16 @@ defmodule Cpc.Downloader do
             sock: nil,
             cache_directory: nil,
             serializer: nil,
+            purger: nil,
             action: nil,
             req_id: nil
 
-  def start_link(mirror_url, serializer, sock, cache_directory) do
+  def start_link(mirror_url, serializer, sock, cache_directory, purger) do
     GenServer.start_link(__MODULE__, %Dload{sock: sock,
                                             mirror: mirror_url,
                                             cache_directory: cache_directory,
                                             serializer: serializer,
+                                            purger: purger,
                                             action: {:recv_header, %{uri: nil, range_start: nil}}})
   end
 
@@ -317,6 +319,7 @@ defmodule Cpc.Downloader do
     :ok = :gen_tcp.close(state.sock)
     :ok = GenServer.cast(state.serializer, {:download_ended, n})
     :ok = :ibrowse.stream_close(req_id)
+    :ok = GenServer.cast(state.purger, :purge)
     {:noreply, :sock_closed}
   end
 
@@ -438,37 +441,6 @@ defmodule Cpc.Downloader do
     :ok = File.ln_s(Path.join(download_dir_basename, basename), basename)
     :ok = :file.set_cwd(prev_dir)
   end
-
-
-  def contains_package(directory) do
-    File.ls!(directory) |> Enum.any?(&String.contains?(&1, ".pkg.tar"))
-  end
-
-  def package_directories(parent) do
-    File.ls!(parent)
-    |> Enum.map(&Path.join(parent, &1))
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.flat_map(fn path ->
-      if contains_package(path) do
-        [path | package_directories(path)]
-      else
-        package_directories(path)
-      end
-    end)
-  end
-
-  # purges all older packages for all repositories (core, extra, community, …)
-  # defmodule Foo do
-  def purge_packages(cache_directory, keep \\ 3) do
-    commands = Enum.map(package_directories(cache_directory), fn path ->
-      {"/usr/bin/paccache", ["-d", "-c", path, "-k", to_string(keep), "--nocolor"]}
-    end)
-    Enum.each(commands, fn {command, args} ->
-      {output, 0} = System.cmd(command, args)
-      Logger.info "paccache: #{output}"
-    end)
-  end
-  # end
 
 
 end

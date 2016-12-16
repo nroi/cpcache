@@ -17,15 +17,17 @@ defmodule Cpc.Listener do
                                                    reuseaddr: true,
                                                    packet: :http_bin])
     Logger.info "Listening on port #{port}"
-    {serializer_name, acceptor_name} = case arch do
-      :x86 -> {:x86_serializer, :x86_supervisor}
-      :arm -> {:arm_serializer, :arm_supervisor}
+    {serializer_name, acceptor_name, purger_name} = case arch do
+      :x86 -> {:x86_serializer, :x86_supervisor, :x86_purger}
+      :arm -> {:arm_serializer, :arm_supervisor, :arm_purger}
     end
     children = [
       worker(Cpc.AcceptorSupervisor,
-             [listening_sock, mirror, arch, cache_directory],
+             [listening_sock, mirror, arch, cache_directory, purger_name],
              id: acceptor_name),
       worker(Cpc.Serializer, [serializer_name], id: serializer_name),
+      # TODO read from yaml instead of hardcoding value 3
+      worker(Cpc.Purger, [cache_directory, 3, purger_name])
     ]
     supervise(children, strategy: :one_for_one)
   end
