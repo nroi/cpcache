@@ -440,4 +440,31 @@ defmodule Cpc.Downloader do
   end
 
 
+  def contains_package(directory) do
+    File.ls!(directory) |> Enum.any?(&String.contains?(&1, ".pkg.tar"))
+  end
+
+  def package_directories(parent) do
+    File.ls!(parent)
+    |> Enum.map(&Path.join(parent, &1))
+    |> Enum.filter(fn file -> File.dir?(file) && contains_package(file) end)
+    |> Enum.flat_map(fn path ->
+      [path | package_directories(path)]
+    end)
+  end
+
+  # purges all older packages for all repositories (core, extra, community, …)
+  # defmodule Foo do
+  def purge_packages(cache_directory, keep \\ 3) do
+    commands = Enum.map(package_directories(cache_directory), fn path ->
+      {"/usr/bin/paccache", ["-d", "-c", path, "-k", to_string(keep), "--nocolor"]}
+    end)
+    Enum.each(commands, fn {command, args} ->
+      {output, 0} = System.cmd(command, args)
+      Logger.info "paccache: #{output}"
+    end)
+  end
+  # end
+
+
 end
