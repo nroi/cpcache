@@ -362,7 +362,7 @@ defmodule Cpc.Downloader do
 
 
   def handle_info({:http, _sock, http_packet}, state) do
-    Logger.debug "ignored: #{inspect http_packet}"
+    Logger.debug "Ignored: #{inspect http_packet}"
     {:noreply, state}
   end
 
