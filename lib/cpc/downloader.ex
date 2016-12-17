@@ -311,18 +311,10 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     ^content_length = File.stat!(n).size
-    Logger.debug "Download from growing file complete."
-    {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
-    :ok = File.close(f)
-    set_symlink(n)
-    _ = Logger.debug "Closing file and socket."
-    :ok = :gen_tcp.close(state.sock)
-    :ok = GenServer.cast(state.serializer, {:download_ended, n})
+    finalize_download_from_growing_file(state, f, n, size, content_length)
     :ok = :ibrowse.stream_close(req_id)
-    :ok = GenServer.cast(state.purger, :purge)
     {:noreply, :sock_closed}
   end
-
 
   # TODO either the {:download… or {:filewatch… state should become obsolete
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:download, _, {_,n}}}) do
@@ -343,10 +335,7 @@ defmodule Cpc.Downloader do
     new_size = File.stat!(n).size
     case new_size do
       ^content_length ->
-        Logger.debug "Download from growing file complete."
-        {:ok, _} = :file.sendfile(f, state.sock, size, new_size - size, [])
-        :ok = File.close(f)
-        :ok = :gen_tcp.close(state.sock)
+        finalize_download_from_growing_file(state, f, n, size, content_length)
         {:noreply, :sock_closed}
       ^size ->
         # Filesize unchanged, although we waited a few milliseconds.
@@ -377,6 +366,17 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, _req_id}, state = :sock_closed) do
     {:noreply, state}
+  end
+
+  defp finalize_download_from_growing_file(state, f, n, size, content_length) do
+    Logger.debug "Download from growing file complete."
+    {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
+    :ok = File.close(f)
+    set_symlink(n)
+    _ = Logger.debug "Closing file and socket."
+    :ok = :gen_tcp.close(state.sock)
+    :ok = GenServer.cast(state.serializer, {:download_ended, n})
+    :ok = GenServer.cast(state.purger, :purge)
   end
 
   defp content_length_from_mailbox() do
