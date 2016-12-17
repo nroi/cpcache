@@ -316,14 +316,6 @@ defmodule Cpc.Downloader do
     {:noreply, :sock_closed}
   end
 
-  # TODO either the {:download… or {:filewatch… state should become obsolete
-  def handle_info({:tcp_closed, _}, state = %Dload{action: {:download, _, {_,n}}}) do
-    Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
-    :ok = :ibrowse.stream_close(state.req_id)
-    :ok = GenServer.cast(state.serializer, {:download_ended, n})
-    {:stop, :normal, nil}
-  end
-
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
