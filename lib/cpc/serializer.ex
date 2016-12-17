@@ -6,6 +6,11 @@ defmodule Cpc.Serializer do
     GenServer.start_link(__MODULE__, %{}, name: name)
   end
 
+  def init(state = %{}) do
+    {:ok, _} = :timer.send_interval(5000, :debug)
+    {:ok, state}
+  end
+
   def handle_info({from, :state?, filename}, state = %{}) do
     # The downloader has received a GET request which is neither a database nor a locally
     # available file. Hence, it needs to check if someone is already downloading this file.
@@ -35,6 +40,11 @@ defmodule Cpc.Serializer do
         end
       _ -> {:noreply, state}
     end
+  end
+
+  def handle_info(:debug, state) do
+    Logger.debug "Serializer state: #{inspect state}"
+    {:noreply, state}
   end
 
   def handle_cast({:download_ended, filename}, state = %{}) do

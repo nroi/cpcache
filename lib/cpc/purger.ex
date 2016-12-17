@@ -9,7 +9,7 @@ defmodule Cpc.Purger do
 
   def handle_cast(:purge, {cache_directory, keep, _id}) do
     new_id = :erlang.unique_integer()
-    :timer.send_after(@purge_wait, {:purge_id, new_id})
+    {:ok, _} = :timer.send_after(@purge_wait, {:purge_id, new_id})
     {:noreply, {cache_directory, keep, new_id}}
   end
 
