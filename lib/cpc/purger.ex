@@ -1,14 +1,26 @@
 defmodule Cpc.Purger do
   use GenServer
   require Logger
+  @purge_wait 10 * 1000 * 60
 
   def start_link(cache_directory, keep, name) do
-    GenServer.start_link(__MODULE__, {cache_directory, keep}, name: name)
+    GenServer.start_link(__MODULE__, {cache_directory, keep, nil}, name: name)
   end
 
-  def handle_cast(:purge, state = {cache_directory, keep}) do
-    purge(cache_directory, keep)
-    {:noreply, state}
+  def handle_cast(:purge, {cache_directory, keep, _id}) do
+    new_id = :erlang.unique_integer()
+    :timer.send_after(@purge_wait, {:purge_id, new_id})
+    {:noreply, {cache_directory, keep, new_id}}
+  end
+
+  def handle_info({:purge_id, id}, state = {cache_directory, keep, state_id}) do
+    if id == state_id do
+      purge(cache_directory, keep)
+      {:noreply, {cache_directory, keep, nil}}
+    else
+      Logger.debug "Not the most recent purge request, ignore."
+      {:noreply, state}
+    end
   end
 
   def contains_package(directory) do
