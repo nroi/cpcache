@@ -313,6 +313,7 @@ defmodule Cpc.Downloader do
     ^content_length = File.stat!(n).size
     finalize_download_from_growing_file(state, f, n, size, content_length)
     :ok = :ibrowse.stream_close(req_id)
+    set_symlink(n)
     {:noreply, :sock_closed}
   end
 
@@ -372,7 +373,6 @@ defmodule Cpc.Downloader do
     Logger.debug "Download from growing file complete."
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
     :ok = File.close(f)
-    set_symlink(n)
     _ = Logger.debug "Closing file and socket."
     :ok = :gen_tcp.close(state.sock)
     :ok = GenServer.cast(state.serializer, {:download_ended, n})
