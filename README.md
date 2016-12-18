@@ -7,11 +7,11 @@ even as multiple clients download the same file at the same time.
 ## How it works
 
 For each incoming GET request, cpcache checks if it can serve the request from
-cache. If so, the file sent to the client while it is being read from the local
+cache. If so, the file is sent to the client while it is being read from the local
 file system. Otherwise, the file is sent while it is being downloaded from an
 ordinary pacman mirror.
 In either case, the client will get an immediate response, i.e., files need not be
-downloaded from server or read from the file system entirely before a response is
+downloaded from the server or read from the file system entirely before a response is
 sent to the client.
 No caching is done for database files, cpcache will send a redirect response
 instead.
@@ -34,7 +34,7 @@ let's compare cpcache with each of them.
 * Read-write caches such as [pacserve](https://wiki.archlinux.org/index.php/Pacserve) or
   [paccache](https://github.com/eworm-de/paccache):
   pacserve and paccache are distributed while cpcache is centralized. A distributed solution is your
-  only option if you don't have device in your LAN which is running 24/7. If, on the other hand, you
+  only option if you don't have a device in your LAN which is running 24/7. If, on the other hand, you
   do have such a device, you may prefer a centralized solution that keeps all your cached packages
   at one place. This allows you to just set pacman's `CacheDir` to `/tmp` instead of storing
   packages redundantly. Also, packages that are cached once are always available, not only if the
@@ -62,7 +62,7 @@ from `conf/cpcache.yaml` to `/etc` and adapt it as required.
 
 ## Installation
 A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/cpcache-git/).
-Install cpcache on your server. Then, start and enable the cpache service:
+Install cpcache on your server. Then, start and enable the cpcache service:
 ```
 systemctl start cpcache.service
 systemctl enable cpcache.service
