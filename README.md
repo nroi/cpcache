@@ -1,59 +1,64 @@
 # cpc
 
-cpc is a central pacman cache. It provides cached results with little
-configuration. Unlike other caching solutions, cpc will not result in 404
-responses that are meant to be ignored.
-
+cpc is a central cache for pacman, the package manager of Arch Linux. It requires little
+configuration, does not bother you with 404 errors and it allows you to utilize the full bandwidth
+even as multiple clients download the same file at the same time.
 
 ## How it works
 
 For each incoming GET request, cpc checks if it can serve the request from
 cache. If so, the file sent to the client while it is being read from the local
-filesystem. Otherwise, the file is sent while it is being downloaded from an
+file system. Otherwise, the file is sent while it is being downloaded from an
 ordinary pacman mirror.
 In either case, the client will get an immediate response. Files need not be
-downloaded from server or read from the filesystem entirely before a response is
+downloaded from server or read from the file system entirely before a response is
 sent to the client.
-No caching is done for database files. cpc will send a redirect response
+No caching is done for database files, cpc will send a redirect response
 instead.
 
+## Comparison with other shared pacman caches
+Most importantly, cpc allows you to share bandwidth when multiple clients are downloading the same
+file at the same time. For instance, suppose a second client requests a file that has been
+downloaded to 30% by the first client. The second client will obtain at least 30% of that file with
+whatever speed your LAN provides. Afterwards, both clients continue to download with the full speed
+provided by your ISP. See
+[this recording](https://up.helios.click/f/parallel-downloads.webm) for a simple demonstration.
 
-## Centralized vs. Distributed
-
-Each have their advantages and disadvantages, but since I already have a device
-running 24/7 inside my LAN, I prefer a centralized solution for the following
-reasons:
-* Files download once are always available, not only when a machine that
-  downloaded it happens to be online.
-* Without decentralized caching, files are still stored redundantly, inside the
-  local caches of all machines. With a centralized cache, you can just set
-  pacman's `CacheDir` to /tmp and, in case you want to downgrade, get the older
-  version from the central cache.
-* Decentralized caches are useless if the same file is downloaded by multiple
-  machines at once. With cpc, files are guaranteed to be downloaded not more
-  than once. Suppose two machines request the same file at roughly the same
-  time. What happens is that cpc starts with the first download request, waits
-  until the content-length is known (i.e., until the mirror has replied with the
-  header), and creates a file where the package will be downloaded to. Before
-  the download has completed, the second request can be processed. It will then
-  get what has already been received from the local file system.
+A number of different caching methods are listed in the
+[wiki](https://wiki.archlinux.org/index.php?title=Pacman/Tips_and_tricks&redirect=no#Network_shared_pacman_cache),
+let's compare cpc with each of them.
+* Read-only cache using a web server such as darkhttp:
+  This is messy since it will return lots of 404s. With cpc, uncached packages will be downloaded as
+  if you were downloading them directly from the remote mirror, while also making them available for
+  subsequent requests.
+* Read-write caches such as [pacserve](https://wiki.archlinux.org/index.php/Pacserve) or
+  [paccache](https://github.com/eworm-de/paccache):
+  pacserve and paccache are distributed while cpc is centralized. A decentralized
+  solution is your only option if you don't have device in your LAN which is running 24/7. If, on the
+  other hand, you do have such a device, you may prefer a centralized solution that keeps all your
+  cached packages at one place. This allows you to just set pacman's `CacheDir` to `/tmp` instead of
+  storing packages redundantly. Also, packages that are cached once are always available, not only if
+  the machine that cached it happens to be online.
+* Reverse proxy cache using NGINX: Apart from the fact that cpc can utilize the full bandwidth even
+  with multiple concurrent downloads, the setup described in the wiki is quite similar to cpc's
+  approach.
 
 
 ## Dependencies
-Other than Elixir and Erlang, only
-[inotify-tools](https://github.com/rvoicilas/inotify-tools) is required.
+Apart from Elixir and Erlang, cpc requires
+[inotify-tools](https://github.com/rvoicilas/inotify-tools) and paccache. paccache (not to be confused with
+[paccache](https://github.com/eworm-de/paccache) mentioned above) is included with pacman, hence it
+does not need to be installed if you're running Arch Linux. Otherwise, you can set the `keep` option
+to `0` in `/etc/cpc.yaml`, which will deactivate purging and therefore not require paccache.
 
+## Limitations
+The mirror configured in /etc/cpc.yaml must use the default relative path, i.e., `$repo/os/$arch`
+for x86 and `$arch/repo` for arm.
 
 ## Configuration
 
-Set the path of the local cache as well as the URI for the remote mirror in
-config/config.exs, for instance:
-
-```elixir
-config :http_relay,
-  root: "/path/to/cpc/cache",
-  url:  "http://fooo.biz/archlinux"
-```
+cpc expects a configuration file in `/etc/cpc.yaml`. You can copy the example configuration file
+from `conf/cpc.yaml` to `/etc` and adapt it as required.
 
 ## Installation
 TODO publish on AUR
