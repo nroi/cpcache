@@ -19,11 +19,15 @@ defmodule Cpc.Listener do
       :x86 -> {:x86_serializer, :x86_supervisor, :x86_purger}
       :arm -> {:arm_serializer, :arm_supervisor, :arm_purger}
     end
-    children = [
-      worker(Cpc.AcceptorSupervisor, [listening_sock, arch, purger_name], id: acceptor_name),
-      worker(Cpc.Serializer, [serializer_name], id: serializer_name),
-      worker(Cpc.Purger, [cache_directory, keep, purger_name])
-    ]
+    children = case keep do
+      0 ->
+        [worker(Cpc.AcceptorSupervisor, [listening_sock, arch, purger_name], id: acceptor_name),
+         worker(Cpc.Serializer, [serializer_name], id: serializer_name)]
+      k ->
+        [worker(Cpc.AcceptorSupervisor, [listening_sock, arch, purger_name], id: acceptor_name),
+         worker(Cpc.Serializer, [serializer_name], id: serializer_name),
+         worker(Cpc.Purger, [cache_directory, k, purger_name])]
+    end
     supervise(children, strategy: :one_for_one)
   end
 

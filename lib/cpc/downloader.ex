@@ -18,7 +18,6 @@ defmodule Cpc.Downloader do
                                             action: {:recv_header, %{uri: nil, range_start: nil}}})
   end
 
-
   # TODO we still have two downloads if one client downloads the file from start, the other client
   # is using content ranges.
 
