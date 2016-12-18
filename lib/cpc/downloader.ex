@@ -442,4 +442,7 @@ defmodule Cpc.Downloader do
   end
 
 
+  # TODO: if the process terminates unexpectedly and we are still downloading a file, we need to
+  # inform the supervisor that no one is downloading that file anymore.
+
 end
