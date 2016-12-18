@@ -2,16 +2,14 @@ defmodule Cpc.Listener do
   use Supervisor
   require Logger
 
-  def start_link([arch: arch, port: port, mirror: mirror, cache_directory: cache_directory]) do
-    Supervisor.start_link(__MODULE__,
-                          [arch: arch,
-                           port: port,
-                           mirror: mirror,
-                           cache_directory: cache_directory],
-                           strategy: :one_for_one)
+  def start_link(arch) do
+    Supervisor.start_link(__MODULE__, [arch: arch], strategy: :one_for_one)
   end
 
-  def init([arch: arch, port: port, mirror: mirror, cache_directory: cache_directory]) do
+  def init([arch: arch]) do
+    [{^arch, ets_map}] = :ets.lookup(:cpc_config, arch)
+    %{port: port, cache_directory: cache_directory} = ets_map
+    [{:keep, keep}] = :ets.lookup(:cpc_config, :keep)
     {:ok, listening_sock} = :gen_tcp.listen(port, [:binary,
                                                    active: false,
                                                    reuseaddr: true,
@@ -22,12 +20,9 @@ defmodule Cpc.Listener do
       :arm -> {:arm_serializer, :arm_supervisor, :arm_purger}
     end
     children = [
-      worker(Cpc.AcceptorSupervisor,
-             [listening_sock, mirror, arch, cache_directory, purger_name],
-             id: acceptor_name),
+      worker(Cpc.AcceptorSupervisor, [listening_sock, arch, purger_name], id: acceptor_name),
       worker(Cpc.Serializer, [serializer_name], id: serializer_name),
-      # TODO read from yaml instead of hardcoding value 3
-      worker(Cpc.Purger, [cache_directory, 3, purger_name])
+      worker(Cpc.Purger, [cache_directory, keep, purger_name])
     ]
     supervise(children, strategy: :one_for_one)
   end

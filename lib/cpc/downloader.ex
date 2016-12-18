@@ -3,18 +3,16 @@ defmodule Cpc.Downloader do
   alias Cpc.Downloader, as: Dload
   require Logger
   use GenServer
-  defstruct mirror: nil,
-            sock: nil,
-            cache_directory: nil,
+  defstruct sock: nil,
+            arch: nil,
             serializer: nil,
             purger: nil,
             action: nil,
             req_id: nil
 
-  def start_link(mirror_url, serializer, sock, cache_directory, purger) do
+  def start_link(serializer, arch, sock, purger) do
     GenServer.start_link(__MODULE__, %Dload{sock: sock,
-                                            mirror: mirror_url,
-                                            cache_directory: cache_directory,
+                                            arch: arch,
                                             serializer: serializer,
                                             purger: purger,
                                             action: {:recv_header, %{uri: nil, range_start: nil}}})
@@ -24,7 +22,8 @@ defmodule Cpc.Downloader do
   # TODO we still have two downloads if one client downloads the file from start, the other client
   # is using content ranges.
 
-  defp get_filename(uri, mirror, cache_dir) do
+  defp get_filename(uri, arch) do
+    [{^arch, %{cache_directory: cache_dir, url: mirror}}] = :ets.lookup(:cpc_config, arch)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -118,7 +117,8 @@ defmodule Cpc.Downloader do
 
   defp serve_via_http(filename, state, hs) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = state.mirror |> String.replace_suffix("/", "") |> Path.join(hs.uri)
+    [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
+    url = mirror |> String.replace_suffix("/", "") |> Path.join(hs.uri)
     headers = case hs.range_start do
       nil ->
         []
@@ -219,7 +219,8 @@ defmodule Cpc.Downloader do
             {from, fn -> :ok end}
         end
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
-        url = Path.join(state.mirror, hs.uri)
+        [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
+        url = Path.join(mirror, hs.uri)
         opts = [save_response_to_file: {:append, to_charlist(filename)}, stream_to: {self(), :once}]
         {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts)
         case content_length_from_mailbox() do
@@ -278,7 +279,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, :http_eoh}, state = %Dload{action: {:recv_header, hs}}) do
-    case get_filename(hs.uri, state.mirror, state.cache_directory) do
+    case get_filename(hs.uri, state.arch) do
       {:database, db_url} ->
         serve_via_redirect(db_url, state.sock)
       {:complete_file, filename} ->
