@@ -310,8 +310,8 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
-    ^content_length = File.stat!(n).size
     finalize_download_from_growing_file(state, f, n, size, content_length)
+    ^content_length = File.stat!(n).size
     :ok = :ibrowse.stream_close(req_id)
     {:noreply, :sock_closed}
   end
