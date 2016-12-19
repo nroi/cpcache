@@ -46,7 +46,7 @@ let's compare cpcache with each of them.
   even with multiple concurrent downloads, the setup described in the wiki is quite similar to cpc's
   approach.
 
-# Setup with NGINX
+## Setup with NGINX
 In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
 will cause timeouts in pacman since downloads then requires a few seconds to start. Use
 `proxy_buffering off;` to prevent this.
