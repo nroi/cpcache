@@ -128,7 +128,7 @@ defmodule Cpc.Downloader do
     case content_length_from_mailbox() do
       {:ok, {_, full_content_length}} ->
         reply_header = header(full_content_length, hs.range_start)
-        send state.serializer, {self(), :content_length, {filename, full_content_length}}
+        send state.serializer, {self(), :content_length, {filename, full_content_length, self()}}
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         # TODO for debugging purposes, just to see how large the timeout should be set.
@@ -154,7 +154,7 @@ defmodule Cpc.Downloader do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
     :ok = :gen_tcp.send(sock, header_301(db_url))
     :ok = :gen_tcp.close(sock)
-    {:noreply, :sock_closed}
+    {:stop, :normal, nil}
   end
 
   defp serve_via_cache(filename, sock, range_start) do
@@ -313,13 +313,12 @@ defmodule Cpc.Downloader do
     finalize_download_from_growing_file(state, f, n, size, content_length)
     ^content_length = File.stat!(n).size
     :ok = :ibrowse.stream_close(req_id)
-    {:noreply, :sock_closed}
+    {:stop, :normal, nil}
   end
 
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
-    :ok = GenServer.cast(state.serializer, {:download_ended, n})
     {:stop, :normal, nil}
   end
 
@@ -328,7 +327,7 @@ defmodule Cpc.Downloader do
     case new_size do
       ^content_length ->
         finalize_download_from_growing_file(state, f, n, size, content_length)
-        {:noreply, :sock_closed}
+        {:stop, :normal, nil}
       ^size ->
         # Filesize unchanged, although we waited a few milliseconds.
         :erlang.send_after(@interval, self(), :timer)
@@ -357,7 +356,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:ibrowse_async_response_end, _req_id}, state = :sock_closed) do
-    {:noreply, state}
+    {:stop, :normal, nil}
   end
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
@@ -367,7 +366,6 @@ defmodule Cpc.Downloader do
     set_symlink(n)
     _ = Logger.debug "Closing file and socket."
     :ok = :gen_tcp.close(state.sock)
-    :ok = GenServer.cast(state.serializer, {:download_ended, n})
     :ok = GenServer.cast(state.purger, :purge)
   end
 
