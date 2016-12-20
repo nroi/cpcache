@@ -309,7 +309,6 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     finalize_download_from_growing_file(state, f, n, size, content_length)
-    ^content_length = File.stat!(n).size
     :ok = :ibrowse.stream_close(req_id)
     {:stop, :normal, nil}
   end
@@ -361,8 +360,10 @@ defmodule Cpc.Downloader do
     Logger.debug "Download from growing file complete."
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
     :ok = File.close(f)
+    ^content_length = File.stat!(n).size
     set_symlink(n)
     _ = Logger.debug "Closing file and socket."
+    # TODO In some rare cases, it seems we close the socket too early.
     :ok = :gen_tcp.close(state.sock)
     :ok = GenServer.cast(state.purger, :purge)
   end
