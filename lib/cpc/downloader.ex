@@ -61,8 +61,6 @@ defmodule Cpc.Downloader do
           {port, {:data, ^expected_output}} ->
             true = Port.close(port)
             :ok
-          msg ->
-            raise "Unexpected message: #{inspect msg}"
       # TODO timeout increased for debugging purposes -- should not take so long.
       after 7000 ->
           raise "Timeout while waiting for file #{filepath}"
@@ -355,7 +353,7 @@ defmodule Cpc.Downloader do
     {:noreply, state}
   end
 
-  def handle_info({:ibrowse_async_response_end, _req_id}, state = :sock_closed) do
+  def handle_info({:ibrowse_async_response_end, _req_id}, :sock_closed) do
     {:stop, :normal, nil}
   end
 
