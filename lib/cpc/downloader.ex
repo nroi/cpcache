@@ -432,21 +432,25 @@ defmodule Cpc.Downloader do
     dirname = Path.dirname(filename)
     download_dir_basename = filename |> Path.dirname |> Path.basename
     target = Path.join(download_dir_basename, basename)
+    Logger.debug "#{inspect self} run ln command…"
     # Set symlink, unless it already exists. It may already be set if this
     # function was called while the download had already been initiated by
     # another process.
     result = System.cmd("/usr/bin/ln", ["-s", target, basename],
                         cd: Path.join(dirname, ".."),
                         stderr_to_stdout: true)
+    Logger.debug "#{inspect self} done. evaluate result…"
     case result do
       {"", 0} -> :ok
       {output, 1} ->
         if String.ends_with?(output, "File exists\n") do
+          Logger.debug "#{inspect self} symlink already exists."
           :ok
         else
           raise output
         end
     end
+    Logger.debug "#{inspect self} done."
   end
 
 
