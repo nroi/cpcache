@@ -51,7 +51,7 @@ defmodule Cpc.Downloader do
   def wait_until_file_exists(filepath) do
     # meant to be called after executing the GET request.
     if !File.exists?(filepath) do
-      Logger.debug "#{inspect self} Wait until file #{filepath} is created…"
+      Logger.debug "Wait until file #{filepath} is created…"
       {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
       expected_output = "CREATE " <> basename <> "\n"
       setup_port(dir)
@@ -140,11 +140,7 @@ defmodule Cpc.Downloader do
         send state.serializer, {self(), :not_found}
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
-        # case :gen_tcp.close(state.sock) do
-        #   :ok -> :ok
-        #   {:error, :closed} -> :ok
-        # end
-        # {:stop, :normal, nil}
+        Logger.debug "waiting for client to close the connection."
         {:noreply, :wait_close}
     end
   end
@@ -306,9 +302,9 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     :ok = :ibrowse.stream_close(req_id)
-    Logger.debug "#{inspect self} call finalize from async_response_end"
+    Logger.debug "Call finalize from async_response_end"
     finalize_download_from_growing_file(state, f, n, size, content_length)
-    {:stop, :normal, nil}
+    {:noreply, :wait_close}
   end
 
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
@@ -321,9 +317,9 @@ defmodule Cpc.Downloader do
     new_size = File.stat!(n).size
     case new_size do
       ^content_length ->
-        Logger.debug "#{inspect self} call finalize from handle_info(:timer, …)"
+        Logger.debug "Call finalize from handle_info(:timer, …)"
         finalize_download_from_growing_file(state, f, n, size, content_length)
-        {:stop, :normal, nil}
+        {:noreply, :wait_close}
       ^size ->
         # Filesize unchanged, although we waited a few milliseconds.
         :erlang.send_after(@interval, self(), :timer)
@@ -355,21 +351,30 @@ defmodule Cpc.Downloader do
     {:stop, :normal, nil}
   end
 
+  def handle_info(:timer, state = :wait_close) do
+    {:noreply, state}
+  end
+
+  def handle_info({:ibrowse_async_response_end, _req_id}, state = :wait_close) do
+    {:noreply, state}
+  end
+
   def handle_info({:tcp_closed, _sock}, :wait_close) do
+    Logger.debug "Client has closed the connection."
     {:stop, :normal, nil}
   end
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
-    Logger.debug "#{inspect self} Download from growing file complete."
-    Logger.debug "#{inspect self} Content-length: #{content_length}, size: #{size}"
+    Logger.debug "Download from growing file complete."
+    Logger.debug "Content-length: #{content_length}, size: #{size}"
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
-    Logger.debug "#{inspect self} sendfile has completed."
+    Logger.debug "Sendfile has completed."
     :ok = File.close(f)
-    Logger.debug "#{inspect self} File is closed."
+    Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
-    Logger.debug "#{inspect self} Assertion checked."
+    Logger.debug "Assertion checked."
     set_symlink(n)
-    _ = Logger.debug "#{inspect self} Closing file and socket."
+    _ = Logger.debug "Symlink set."
     :ok = GenServer.cast(state.purger, :purge)
   end
 
@@ -431,25 +436,25 @@ defmodule Cpc.Downloader do
     dirname = Path.dirname(filename)
     download_dir_basename = filename |> Path.dirname |> Path.basename
     target = Path.join(download_dir_basename, basename)
-    Logger.debug "#{inspect self} run ln command…"
+    Logger.debug "Run ln command…"
     # Set symlink, unless it already exists. It may already be set if this
     # function was called while the download had already been initiated by
     # another process.
     result = System.cmd("/usr/bin/ln", ["-s", target, basename],
                         cd: Path.join(dirname, ".."),
                         stderr_to_stdout: true)
-    Logger.debug "#{inspect self} done. evaluate result…"
+    Logger.debug "Done. evaluate result…"
     case result do
       {"", 0} -> :ok
       {output, 1} ->
         if String.ends_with?(output, "File exists\n") do
-          Logger.debug "#{inspect self} symlink already exists."
+          Logger.debug "Symlink already exists."
           :ok
         else
           raise output
         end
     end
-    Logger.debug "#{inspect self} done."
+    Logger.debug "Done."
   end
 
 
