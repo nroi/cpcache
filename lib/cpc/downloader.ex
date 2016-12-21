@@ -430,21 +430,24 @@ defmodule Cpc.Downloader do
   defp set_symlink(filename) do
     basename = Path.basename(filename)
     dirname = Path.dirname(filename)
-    prev_dir = System.cwd
     download_dir_basename = filename |> Path.dirname |> Path.basename
-    :ok = :file.set_cwd(Path.join(dirname, ".."))
-    # Set symlink, unless it already exists. It may already by set if this
+    target = Path.join(download_dir_basename, basename)
+    # Set symlink, unless it already exists. It may already be set if this
     # function was called while the download had already been initiated by
     # another process.
-    case File.ln_s(Path.join(download_dir_basename, basename), basename) do
-      :ok -> :ok
-      {:error, :eexist} -> :ok
+    result = System.cmd("/usr/bin/ln", ["-s", target, basename],
+                        cd: Path.join(dirname, ".."),
+                        stderr_to_stdout: true)
+    case result do
+      {"", 0} -> :ok
+      {output, 1} ->
+        if String.ends_with?(output, "File exists\n") do
+          :ok
+        else
+          raise output
+        end
     end
-    :ok = :file.set_cwd(prev_dir)
   end
 
-
-  # TODO: if the process terminates unexpectedly and we are still downloading a file, we need to
-  # inform the supervisor that no one is downloading that file anymore.
 
 end
