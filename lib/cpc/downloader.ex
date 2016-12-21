@@ -51,7 +51,7 @@ defmodule Cpc.Downloader do
   def wait_until_file_exists(filepath) do
     # meant to be called after executing the GET request.
     if !File.exists?(filepath) do
-      Logger.debug "Wait until file #{filepath} is created…"
+      Logger.debug "#{inspect self} Wait until file #{filepath} is created…"
       {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
       expected_output = "CREATE " <> basename <> "\n"
       setup_port(dir)
@@ -140,19 +140,21 @@ defmodule Cpc.Downloader do
         send state.serializer, {self(), :not_found}
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
-        case :gen_tcp.close(state.sock) do
-          :ok -> :ok
-          {:error, :closed} -> :ok
-        end
-        {:stop, :normal, nil}
+        # case :gen_tcp.close(state.sock) do
+        #   :ok -> :ok
+        #   {:error, :closed} -> :ok
+        # end
+        # {:stop, :normal, nil}
+        {:noreply, :wait_close}
     end
   end
 
   defp serve_via_redirect(db_url, sock) do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
     :ok = :gen_tcp.send(sock, header_301(db_url))
-    :ok = :gen_tcp.close(sock)
-    {:stop, :normal, nil}
+    # :ok = :gen_tcp.close(sock)
+    # {:stop, :normal, nil}
+    {:noreply, :wait_close}
   end
 
   defp serve_via_cache(filename, sock, range_start) do
@@ -170,8 +172,7 @@ defmodule Cpc.Downloader do
         :ok = File.close(f)
     end
     _ = Logger.debug "Download from cache complete."
-    :ok = :gen_tcp.close(sock)
-    {:stop, :normal, nil}
+    {:noreply, :wait_close}
   end
 
   defp serve_via_growing_file(filename, state, range_start, full_content_length) do
@@ -237,11 +238,7 @@ defmodule Cpc.Downloader do
             reply_header = header_404()
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            case :gen_tcp.close(state.sock) do
-              :ok -> :ok
-              {:error, :closed} -> :ok
-            end
-            {:stop, :normal, nil}
+            {:noreply, :wait_close}
           {:error, {:range_not_satisfiable, filesize}} ->
             case File.stat!(filename).size do
               ^filesize ->
@@ -358,6 +355,10 @@ defmodule Cpc.Downloader do
     {:stop, :normal, nil}
   end
 
+  def handle_info({:tcp_closed, _sock}, :wait_close) do
+    {:stop, :normal, nil}
+  end
+
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
     Logger.debug "#{inspect self} Download from growing file complete."
     Logger.debug "#{inspect self} Content-length: #{content_length}, size: #{size}"
@@ -369,8 +370,6 @@ defmodule Cpc.Downloader do
     Logger.debug "#{inspect self} Assertion checked."
     set_symlink(n)
     _ = Logger.debug "#{inspect self} Closing file and socket."
-    # TODO In some rare cases, it seems we close the socket too early.
-    :ok = :gen_tcp.close(state.sock)
     :ok = GenServer.cast(state.purger, :purge)
   end
 
