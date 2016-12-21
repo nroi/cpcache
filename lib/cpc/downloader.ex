@@ -51,7 +51,7 @@ defmodule Cpc.Downloader do
   def wait_until_file_exists(filepath) do
     # meant to be called after executing the GET request.
     if !File.exists?(filepath) do
-      Logger.debug "Wait until file is created…"
+      Logger.debug "Wait until file #{filepath} is created…"
       {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
       expected_output = "CREATE " <> basename <> "\n"
       setup_port(dir)
@@ -308,8 +308,9 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
-    finalize_download_from_growing_file(state, f, n, size, content_length)
     :ok = :ibrowse.stream_close(req_id)
+    Logger.debug "#{inspect self} call finalize from async_response_end"
+    finalize_download_from_growing_file(state, f, n, size, content_length)
     {:stop, :normal, nil}
   end
 
@@ -323,6 +324,7 @@ defmodule Cpc.Downloader do
     new_size = File.stat!(n).size
     case new_size do
       ^content_length ->
+        Logger.debug "#{inspect self} call finalize from handle_info(:timer, …)"
         finalize_download_from_growing_file(state, f, n, size, content_length)
         {:stop, :normal, nil}
       ^size ->
@@ -357,12 +359,16 @@ defmodule Cpc.Downloader do
   end
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
-    Logger.debug "Download from growing file complete."
+    Logger.debug "#{inspect self} Download from growing file complete."
+    Logger.debug "#{inspect self} Content-length: #{content_length}, size: #{size}"
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
+    Logger.debug "#{inspect self} sendfile has completed."
     :ok = File.close(f)
+    Logger.debug "#{inspect self} File is closed."
     ^content_length = File.stat!(n).size
+    Logger.debug "#{inspect self} Assertion checked."
     set_symlink(n)
-    _ = Logger.debug "Closing file and socket."
+    _ = Logger.debug "#{inspect self} Closing file and socket."
     # TODO In some rare cases, it seems we close the socket too early.
     :ok = :gen_tcp.close(state.sock)
     :ok = GenServer.cast(state.purger, :purge)
