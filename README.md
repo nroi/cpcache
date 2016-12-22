@@ -5,7 +5,7 @@ configuration, does not bother you with 404 errors and it allows you to utilize 
 even as multiple clients download the same file at the same time.
 
 ## Current Status
-Beta. More testing is required for parallel downloads and content-ranges.
+Work in progress.
 
 ## How it works
 
