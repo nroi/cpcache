@@ -337,24 +337,31 @@ defmodule Cpc.Downloader do
   end
 
   # TODO do we still need the content length and size?
-  def handle_cast({:filesize_increased, {prev_size, new_size}},
-                  state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
+  def handle_cast({:filesize_increased, {n1, prev_size, new_size}},
+              state = %Dload{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
     {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
-    {:noreply, %{state | action: {:filewatch, {f, n}, content_length, new_size}}}
+    {:noreply, %{state | action: {:filewatch, {f, n2}, content_length, new_size}}}
   end
 
-  def handle_cast({:file_complete, {prev_size, new_size}},
-                  state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
+  def handle_cast({:file_complete, {n1, prev_size, new_size}},
+              state = %Dload{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
     Logger.debug "Call finalize from handle_info(:timer, …)"
-    finalize_download_from_growing_file(state, f, n, size, content_length)
+    finalize_download_from_growing_file(state, f, n2, size, content_length)
     {:noreply, %{state | req_id: nil,
                          action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
-  def handle_cast({:file_complete, {_prev_size, _new_size}}, state) do
+  def handle_cast({:file_complete, {_filename, _prev_size, _new_size}}, state) do
     # Save to ignore: sometimes we catch the file completion via ibrowse_async_response_end, but the
     # timer still informs us that the file has completed.
     Logger.debug "Ignore file completion."
+    {:noreply, state}
+  end
+
+  def handle_cast({:filesize_increased, {_filename, _prev_size, _new_size}}, state) do
+    # Can be ignored for the same reasons as :file_complete
+    # timer still informs us that the file has completed.
+    Logger.debug "Ignore file size increase."
     {:noreply, state}
   end
 
@@ -400,8 +407,6 @@ defmodule Cpc.Downloader do
         {:error, {:range_not_satisfiable, file_size}}
       {:ibrowse_async_headers, _, status, _headers} ->
         raise "Expected HTTP response 200, got instead: #{inspect status}"
-      msg ->
-        raise "Unexpected message while waiting for GET reply: #{inspect msg}"
     after 3000 ->
         raise "Timeout while waiting for response to GET request."
     end

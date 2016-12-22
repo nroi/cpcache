@@ -21,10 +21,10 @@ defmodule Cpc.Filewatcher do
         :erlang.send_after(@interval, self(), :timer)
         {:noreply, state}
       ^max_size ->
-        :ok = GenServer.cast(receiver, {:file_complete, {prev_size, max_size}})
+        :ok = GenServer.cast(receiver, {:file_complete, {filename, prev_size, max_size}})
         {:stop, :normal, nil}
       new_size when new_size > prev_size ->
-        :ok = GenServer.cast(receiver, {:filesize_increased, {prev_size, new_size}})
+        :ok = GenServer.cast(receiver, {:filesize_increased, {filename, prev_size, new_size}})
         :erlang.send_after(@interval, self(), :timer)
         {:noreply, {filename, new_size, max_size, receiver}}
     end
