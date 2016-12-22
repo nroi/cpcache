@@ -1,5 +1,4 @@
 defmodule Cpc.Downloader do
-  @interval 5
   alias Cpc.Downloader, as: Dload
   require Logger
   use GenServer
@@ -8,7 +7,8 @@ defmodule Cpc.Downloader do
             serializer: nil,
             purger: nil,
             action: nil,
-            req_id: nil
+            req_id: nil,
+            timer_ref: nil
 
   def start_link(serializer, arch, sock, purger) do
     GenServer.start_link(__MODULE__, %Dload{sock: sock,
@@ -133,46 +133,43 @@ defmodule Cpc.Downloader do
         {microsecs, :ok} = :timer.tc(__MODULE__, :wait_until_file_exists, [filename])
         Logger.debug "Waited #{microsecs / 1000} ms for file creation."
         file = File.open!(filename, [:read, :raw])
-        :erlang.send_after(@interval, self(), :timer)
+        {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
         action = {:filewatch, {file, filename}, full_content_length, 0}
         {:noreply, %{state | req_id: req_id, action: action}}
       {:error, :not_found} ->
         send state.serializer, {self(), :not_found}
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
-        Logger.debug "waiting for client to close the connection."
-        {:noreply, :wait_close}
+        {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
     end
   end
 
-  defp serve_via_redirect(db_url, sock) do
+  defp serve_via_redirect(db_url, state) do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
-    :ok = :gen_tcp.send(sock, header_301(db_url))
-    # :ok = :gen_tcp.close(sock)
-    # {:stop, :normal, nil}
-    {:noreply, :wait_close}
+    :ok = :gen_tcp.send(state.sock, header_301(db_url))
+    {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
-  defp serve_via_cache(filename, sock, range_start) do
+  defp serve_via_cache(filename, state, range_start) do
     _ = Logger.info "Serve file from cache: #{filename}"
     content_length = File.stat!(filename).size
     reply_header = header(content_length, range_start)
-    :ok = :gen_tcp.send(sock, reply_header)
+    :ok = :gen_tcp.send(state.sock, reply_header)
     case range_start do
       nil ->
-        {:ok, ^content_length} = :file.sendfile(filename, sock)
+        {:ok, ^content_length} = :file.sendfile(filename, state.sock)
       rs ->
         Logger.debug "Send partial file, from #{rs} until end."
         f = File.open!(filename, [:read, :raw])
-        {:ok, _} = :file.sendfile(f, sock, range_start, content_length - rs, [])
+        {:ok, _} = :file.sendfile(f, state.sock, range_start, content_length - rs, [])
         :ok = File.close(f)
     end
     _ = Logger.debug "Download from cache complete."
-    {:noreply, :wait_close}
+    {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
   defp serve_via_growing_file(filename, state, range_start, full_content_length) do
-    :erlang.send_after(@interval, self(), :timer)
+    {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
     Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
     reply_header = header(full_content_length, range_start)
@@ -226,7 +223,7 @@ defmodule Cpc.Downloader do
             _ = Logger.debug "Sent header: #{reply_header}"
             send_from_cache.()
             :ok = File.close(raw_file)
-            :erlang.send_after(@interval, self(), :timer)
+            {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
             action = {:filewatch, {file, filename}, full_content_length, start_http_from_byte}
             {:noreply, %{state | req_id: req_id, action: action}}
           {:error, :not_found} ->
@@ -234,7 +231,8 @@ defmodule Cpc.Downloader do
             reply_header = header_404()
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            {:noreply, :wait_close}
+            {:noreply, %{state | req_id: nil,
+                                 action: {:recv_header, %{uri: nil, range_start: nil}}}}
           {:error, {:range_not_satisfiable, filesize}} ->
             case File.stat!(filename).size do
               ^filesize ->
@@ -242,7 +240,7 @@ defmodule Cpc.Downloader do
                 Logger.warn "Server replied with 416: Range not satisfiable, probably " <>
                 "because no symlink was set after the file was downloaded. Set symlink now."
                 set_symlink(filename)
-                serve_via_cache(filename, state.sock, hs.range_start)
+                serve_via_cache(filename, state, hs.range_start)
               _size ->
                 raise("Server replied with 416: Range not satisfiable")
             end
@@ -271,9 +269,9 @@ defmodule Cpc.Downloader do
   def handle_info({:http, _, :http_eoh}, state = %Dload{action: {:recv_header, hs}}) do
     case get_filename(hs.uri, state.arch) do
       {:database, db_url} ->
-        serve_via_redirect(db_url, state.sock)
+        serve_via_redirect(db_url, state)
       {:complete_file, filename} ->
-        serve_via_cache(filename, state.sock, hs.range_start)
+        serve_via_cache(filename, state, hs.range_start)
       {:partial_file, filename} ->
         serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
@@ -304,7 +302,8 @@ defmodule Cpc.Downloader do
     :ok = :ibrowse.stream_close(req_id)
     Logger.debug "Call finalize from async_response_end"
     finalize_download_from_growing_file(state, f, n, size, content_length)
-    {:noreply, :wait_close}
+    {:noreply, %{state | req_id: nil,
+                         action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
@@ -312,26 +311,6 @@ defmodule Cpc.Downloader do
     :ok = :ibrowse.stream_close(state.req_id)
     {:stop, :normal, nil}
   end
-
-  def handle_info(:timer, state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
-    new_size = File.stat!(n).size
-    case new_size do
-      ^content_length ->
-        Logger.debug "Call finalize from handle_info(:timer, …)"
-        finalize_download_from_growing_file(state, f, n, size, content_length)
-        {:noreply, :wait_close}
-      ^size ->
-        # Filesize unchanged, although we waited a few milliseconds.
-        :erlang.send_after(@interval, self(), :timer)
-        {:noreply, state}
-      _ ->
-        true = new_size < content_length
-        {:ok, _} = :file.sendfile(f, state.sock, size, new_size - size, [])
-        :erlang.send_after(@interval, self(), :timer)
-        {:noreply, %{state | action: {:filewatch, {f, n}, content_length, new_size}}}
-    end
-  end
-
 
   def handle_info({:http, _sock, http_packet}, state) do
     Logger.debug "Ignored: #{inspect http_packet}"
@@ -343,7 +322,8 @@ defmodule Cpc.Downloader do
     {:stop, :normal, nil}
   end
 
-  def handle_info(:timer, state = :sock_closed) do
+  def handle_info(:timer, state) do
+    Logger.debug "ignore timer."
     {:noreply, state}
   end
 
@@ -351,17 +331,24 @@ defmodule Cpc.Downloader do
     {:stop, :normal, nil}
   end
 
-  def handle_info(:timer, state = :wait_close) do
-    {:noreply, state}
-  end
-
-  def handle_info({:ibrowse_async_response_end, _req_id}, state = :wait_close) do
-    {:noreply, state}
-  end
-
-  def handle_info({:tcp_closed, _sock}, :wait_close) do
-    Logger.debug "Client has closed the connection."
+  def handle_info({:tcp_closed, _sock}, _state) do
+    Logger.debug "Socket closed by client."
     {:stop, :normal, nil}
+  end
+
+  # TODO do we still need the content length and size?
+  def handle_cast({:filesize_increased, {prev_size, new_size}},
+                  state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
+    {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
+    {:noreply, %{state | action: {:filewatch, {f, n}, content_length, new_size}}}
+  end
+
+  def handle_cast({:file_complete, {prev_size, new_size}},
+                  state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
+    Logger.debug "Call finalize from handle_info(:timer, …)"
+    finalize_download_from_growing_file(state, f, n, size, content_length)
+    {:noreply, %{state | req_id: nil,
+                         action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
@@ -370,6 +357,7 @@ defmodule Cpc.Downloader do
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
     Logger.debug "Sendfile has completed."
     :ok = File.close(f)
+    :ok = GenServer.cast(state.serializer, {:download_ended, n, self})
     Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
     Logger.debug "Assertion checked."

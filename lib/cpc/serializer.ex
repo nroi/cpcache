@@ -43,7 +43,18 @@ defmodule Cpc.Serializer do
   def handle_info({:DOWN, ref, :process, pid, status}, {pid2fn, fn2content_length}) do
     :erlang.demonitor(ref)
     filename = pid2fn[pid]
-    Logger.debug "Process with filename #{filename} has ended with status #{inspect status}."
+    case status do
+      :normal -> Logger.debug "Process #{inspect pid} has ended with status normal."
+      status -> Logger.error "Process #{inspect pid} has ended with status #{inspect status}."
+    end
+    map1 = Map.delete(pid2fn, pid)
+    map2 = Map.delete(fn2content_length, filename)
+    {:noreply, {map1, map2}}
+  end
+
+  def handle_cast({:download_ended, filename, pid}, {pid2fn, fn2content_length}) do
+    Logger.info "Download ended: #{filename}"
+    filename = pid2fn[pid]
     map1 = Map.delete(pid2fn, pid)
     map2 = Map.delete(fn2content_length, filename)
     {:noreply, {map1, map2}}
