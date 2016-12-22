@@ -126,6 +126,7 @@ defmodule Cpc.Downloader do
     case content_length_from_mailbox() do
       {:ok, {_, full_content_length}} ->
         reply_header = header(full_content_length, hs.range_start)
+        Logger.warn "Send content length to serializer"
         send state.serializer, {self(), :content_length, {filename, full_content_length, self()}}
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
@@ -137,6 +138,7 @@ defmodule Cpc.Downloader do
         action = {:filewatch, {file, filename}, full_content_length, 0}
         {:noreply, %{state | req_id: req_id, action: action}}
       {:error, :not_found} ->
+        Logger.warn "Send not found to serializer."
         send state.serializer, {self(), :not_found}
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
@@ -184,6 +186,7 @@ defmodule Cpc.Downloader do
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
     # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
     # via HTTP.
+    Logger.warn "request :state?, must send reply soon…"
     send state.serializer, {self(), :state?, filename}
     receive do
       {:downloading, full_content_length} ->
@@ -217,6 +220,7 @@ defmodule Cpc.Downloader do
         case content_length_from_mailbox() do
           {:ok, {_, full_content_length}} ->
             file = File.open!(filename, [:read, :raw])
+            Logger.warn "Send content length to serializer."
             send state.serializer, {self(), :content_length, {filename, full_content_length}}
             reply_header = header(full_content_length, hs.range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
@@ -227,6 +231,7 @@ defmodule Cpc.Downloader do
             action = {:filewatch, {file, filename}, full_content_length, start_http_from_byte}
             {:noreply, %{state | req_id: req_id, action: action}}
           {:error, :not_found} ->
+            Logger.warn "Send not found to serializer."
             send state.serializer, {self(), :not_found}
             reply_header = header_404()
             :ok = :gen_tcp.send(state.sock, reply_header)
@@ -275,6 +280,7 @@ defmodule Cpc.Downloader do
       {:partial_file, filename} ->
         serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
+        Logger.warn "request :state?, must send reply soon…"
         send state.serializer, {self(), :state?, filename}
         receive do
           {:downloading, content_length} ->
