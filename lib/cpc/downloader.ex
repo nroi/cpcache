@@ -351,6 +351,13 @@ defmodule Cpc.Downloader do
                          action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
+  def handle_cast({:file_complete, {_prev_size, _new_size}}, state) do
+    # Save to ignore: sometimes we catch the file completion via ibrowse_async_response_end, but the
+    # timer still informs us that the file has completed.
+    Logger.debug "Ignore file completion."
+    {:noreply, state}
+  end
+
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
     Logger.debug "Download from growing file complete."
     Logger.debug "Content-length: #{content_length}, size: #{size}"
