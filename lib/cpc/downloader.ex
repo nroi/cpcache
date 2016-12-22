@@ -244,6 +244,10 @@ defmodule Cpc.Downloader do
                 send state.serializer, {self(), :complete}
                 Logger.warn "Server replied with 416: Range not satisfiable, probably " <>
                 "because no symlink was set after the file was downloaded. Set symlink now."
+                receive do
+                  {:ibrowse_async_response, _req_id, body} ->
+                    Logger.debug "Ignore response body: #{inspect body}"
+                end
                 set_symlink(filename)
                 serve_via_cache(filename, state, hs.range_start)
               _size ->
