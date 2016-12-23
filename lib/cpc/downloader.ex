@@ -112,10 +112,24 @@ defmodule Cpc.Downloader do
     "\r\n"
   end
 
+  # Given the URI requested by the user, returns the URI we need to send our HTTP request to
+  def mirror_uri(uri, arch) do
+    [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, arch)
+    mirror |> String.replace_suffix("/", "") |> Path.join(uri)
+  end
+
+  # Given a filename, fetch the full content-length from the server.
+  def content_length(req_uri, arch) do
+    uri = mirror_uri(req_uri, arch)
+    headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
+      {:ok, {{_, 200, 'OK'}, headers, _}} -> headers_to_lower(headers)
+    end
+    :proplists.get_value("content-length", headers) |> String.to_integer
+  end
+
   defp serve_via_http(filename, state, hs) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
-    url = mirror |> String.replace_suffix("/", "") |> Path.join(hs.uri)
+    url = mirror_uri(hs.uri, state.arch)
     headers = case hs.range_start do
       nil ->
         []
@@ -126,8 +140,6 @@ defmodule Cpc.Downloader do
     case content_length_from_mailbox() do
       {:ok, {_, full_content_length}} ->
         reply_header = header(full_content_length, hs.range_start)
-        Logger.warn "Send content length to serializer"
-        send state.serializer, {self(), :content_length, {filename, full_content_length, self()}}
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         # TODO for debugging purposes, just to see how large the timeout should be set.
@@ -170,7 +182,10 @@ defmodule Cpc.Downloader do
     {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
-  defp serve_via_growing_file(filename, state, range_start, full_content_length) do
+  defp serve_via_growing_file(filename, state, range_start) do
+    Logger.warn "danger!"
+    %Dload{action: {:recv_header, %{uri: uri}}} = state
+    full_content_length = content_length(uri, state.arch)
     {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
     Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
@@ -186,11 +201,11 @@ defmodule Cpc.Downloader do
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
     # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
     # via HTTP.
-    Logger.warn "request :state?, must send reply soon…"
+    # TODO is the comment above correct (about that the download did not finish?)
     send state.serializer, {self(), :state?, filename}
     receive do
-      {:downloading, full_content_length} ->
-        serve_via_growing_file(filename, state, hs.range_start, full_content_length)
+      :downloading ->
+        serve_via_growing_file(filename, state, hs.range_start)
       :unknown ->
         _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
         filesize = File.stat!(filename).size
@@ -220,8 +235,6 @@ defmodule Cpc.Downloader do
         case content_length_from_mailbox() do
           {:ok, {_, full_content_length}} ->
             file = File.open!(filename, [:read, :raw])
-            Logger.warn "Send content length to serializer."
-            send state.serializer, {self(), :content_length, {filename, full_content_length}}
             reply_header = header(full_content_length, hs.range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
@@ -284,11 +297,10 @@ defmodule Cpc.Downloader do
       {:partial_file, filename} ->
         serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
-        Logger.warn "request :state?, must send reply soon…"
         send state.serializer, {self(), :state?, filename}
         receive do
-          {:downloading, content_length} ->
-            serve_via_growing_file(filename, state, hs.range_start, content_length)
+          :downloading ->
+            serve_via_growing_file(filename, state, hs.range_start)
           :unknown ->
             serve_via_http(filename, state, hs)
         end

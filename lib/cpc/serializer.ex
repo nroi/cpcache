@@ -3,62 +3,58 @@ defmodule Cpc.Serializer do
   require Logger
 
   def start_link(name) do
-    GenServer.start_link(__MODULE__, {%{}, %{}, nil}, name: name)
+    GenServer.start_link(__MODULE__, [], name: name)
   end
 
-  def handle_info({from, :state?, filename}, state = {pid2fn, fn2content_length, ref}) do
+  def handle_info({from, :state?, filename}, pidfnref) do
     # The downloader has received a GET request which is neither a database nor a locally
     # available file. Hence, it needs to check if someone is already downloading this file.
-    filename_status = case fn2content_length[filename] do
-      nil -> :unknown
-      content_length -> {:downloading, content_length}
+    downloading = Enum.any?(pidfnref, fn x -> case x do
+      {_from, ^filename, _ref} -> true
+      _                        -> false
+    end end)
+    filename_status = case downloading do
+      true -> :downloading
+      false -> :unknown
     end
     send from, filename_status
-    # If the filename state is unknown, it will start downloading the file, informing us of the
-    # content length. No other downloads will be started while we wait for the content-length to
-    # arrive.
-    case filename_status do
+    new_state = case filename_status do
       :unknown ->
-        receive do
-          {^from, :content_length, {filename, content_length, pid}} ->
-            ref = :erlang.monitor(:process, pid)
-            map1 = Map.put(pid2fn, pid, filename)
-            map2 = Map.put(fn2content_length, filename, content_length)
-            {:noreply, {map1, map2, ref}}
-          {^from, :not_found} ->
-            # Was not able to GET this file (server replied 404)
-            {:noreply, state}
-          {^from, :complete} ->
-            # We have previously assumed that the locally stored file is incomplete, but it turns
-            # out the file was already complete. No new download is started, state remains
-            # unchanged.
-            {:noreply, state}
-        after 5000 ->
-            raise "Expected an answer within 5 seconds."
-        end
-      _ -> {:noreply, state}
+        # the requesting process will initiate the download, hence we note that the file is being
+        # downloaded.
+        ref = :erlang.monitor(:process, from)
+        [{from, filename, ref} | pidfnref]
+       :downloading ->
+         pidfnref
     end
+    {:noreply, new_state}
   end
 
-  def handle_info({:DOWN, ref, :process, pid, status}, {pid2fn, fn2content_length, _}) do
+  def handle_info({:DOWN, ref, :process, pid, status}, pidfnref) do
     :erlang.demonitor(ref)
-    filename = pid2fn[pid]
+    ongoing_downloads = Enum.filter(pidfnref, fn
+      {^pid, _filename, ^ref} -> false
+      _                       -> true
+    end)
     case status do
       :normal -> Logger.debug "Process #{inspect pid} has ended with status normal."
       status -> Logger.error "Process #{inspect pid} has ended with status #{inspect status}."
     end
-    map1 = Map.delete(pid2fn, pid)
-    map2 = Map.delete(fn2content_length, filename)
-    {:noreply, {map1, map2, nil}}
+    {:noreply, ongoing_downloads}
   end
 
-  def handle_cast({:download_ended, filename, pid}, {pid2fn, fn2content_length, ref}) do
-    :erlang.demonitor(ref)
-    Logger.info "Download ended: #{filename}"
-    filename = pid2fn[pid]
-    map1 = Map.delete(pid2fn, pid)
-    map2 = Map.delete(fn2content_length, filename)
-    {:noreply, {map1, map2, ref}}
+  def handle_cast({:download_ended, filename, pid}, pidfnref) do
+    {ended_downloads, ongoing_downloads} = Enum.partition(pidfnref, fn
+      {^pid, ^filename, _ref} -> true
+      _                       -> false
+    end)
+    case ended_downloads do
+      [{_, filename, ref}] ->
+        Logger.info "Download ended: #{filename}"
+        :erlang.demonitor(ref)
+      _ -> :ok
+    end
+    {:noreply, ongoing_downloads}
   end
 
 end
