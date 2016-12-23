@@ -9,10 +9,10 @@ defmodule Cpc.Serializer do
   def handle_info({from, :state?, filename}, pidfnref) do
     # The downloader has received a GET request which is neither a database nor a locally
     # available file. Hence, it needs to check if someone is already downloading this file.
-    downloading = Enum.any?(pidfnref, fn x -> case x do
+    downloading = Enum.any?(pidfnref, fn
       {_from, ^filename, _ref} -> true
       _                        -> false
-    end end)
+    end)
     filename_status = case downloading do
       true -> :downloading
       false -> :unknown

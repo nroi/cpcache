@@ -41,35 +41,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-  defp setup_port(filename) do
-    cmd = "/usr/bin/inotifywait"
-    args = ["-q", "--format", "%e %f", "-e", "create", filename]
-    _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
-                                         :hide, :use_stdio, :stderr_to_stdout])
-  end
-
-  def wait_until_file_exists(filepath) do
-    # meant to be called after executing the GET request.
-    if !File.exists?(filepath) do
-      Logger.debug "Wait until file #{filepath} is created…"
-      {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
-      expected_output = "CREATE " <> basename <> "\n"
-      setup_port(dir)
-      receive do
-          {:ibrowse_async_response, _req_id, {:error, error}} ->
-            raise "Error while processing get request: #{inspect error}"
-          {port, {:data, ^expected_output}} ->
-            true = Port.close(port)
-            :ok
-      # TODO timeout increased for debugging purposes -- should not take so long.
-      after 7000 ->
-          raise "Timeout while waiting for file #{filepath}"
-      end
-    else
-      :ok
-    end
-  end
-
   defp header(full_content_length, range_start) do
     content_length = case range_start do
       nil -> full_content_length
@@ -137,13 +108,14 @@ defmodule Cpc.Downloader do
     end
     opts = [save_response_to_file: to_charlist(filename), stream_to: {self(), :once}]
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts, :infinity)
+    # TODO we probably don't need to get the content length via mailbox.
     case content_length_from_mailbox() do
       {:ok, {_, full_content_length}} ->
         reply_header = header(full_content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         # TODO for debugging purposes, just to see how large the timeout should be set.
-        {microsecs, :ok} = :timer.tc(__MODULE__, :wait_until_file_exists, [filename])
+        {microsecs, :ok} = :timer.tc(Cpc.Filewatcher, :wait_until_file_exists, [filename])
         Logger.debug "Waited #{microsecs / 1000} ms for file creation."
         file = File.open!(filename, [:read, :raw])
         {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
@@ -183,7 +155,6 @@ defmodule Cpc.Downloader do
   end
 
   defp serve_via_growing_file(filename, state, range_start) do
-    Logger.warn "danger!"
     %Dload{action: {:recv_header, %{uri: uri}}} = state
     full_content_length = content_length(uri, state.arch)
     {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
@@ -191,6 +162,8 @@ defmodule Cpc.Downloader do
                 "growing file."
     reply_header = header(full_content_length, range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
+    {microsecs, :ok} = :timer.tc(Cpc.Filewatcher, :wait_until_file_exists, [filename])
+    Logger.debug "Waited #{microsecs / 1000} ms for file creation."
     file = File.open!(filename, [:read, :raw])
     {:noreply, %{state | action: {:filewatch, {file, filename}, full_content_length, 0}}}
   end
@@ -201,7 +174,6 @@ defmodule Cpc.Downloader do
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
     # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
     # via HTTP.
-    # TODO is the comment above correct (about that the download did not finish?)
     send state.serializer, {self(), :state?, filename}
     receive do
       :downloading ->
@@ -278,6 +250,7 @@ defmodule Cpc.Downloader do
     {:noreply, %{state | action: {:recv_header, %{hs | uri: uri}}}}
   end
 
+
   def handle_info({:http, _, {:http_header, _, :Range, _, range}},
                   state = %Dload{action: {:recv_header, hs}}) do
     range_start = case range do
@@ -328,6 +301,13 @@ defmodule Cpc.Downloader do
                          action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
+  def handle_info({:ibrowse_async_response_end, _req_id}, state) do
+    # Safe to ignore: Sometimes, we receive :file_complete before ibrowse informs us that the GET
+    # request has completed.
+    {:noreply, state}
+  end
+
+
   def handle_info({:tcp_closed, _}, state = %Dload{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
@@ -342,11 +322,6 @@ defmodule Cpc.Downloader do
   def handle_info({:tcp_closed, _}, :sock_closed) do
     Logger.info "Connection closed."
     {:stop, :normal, nil}
-  end
-
-  def handle_info(:timer, state) do
-    Logger.debug "ignore timer."
-    {:noreply, state}
   end
 
   def handle_info({:ibrowse_async_response_end, _req_id}, :sock_closed) do
@@ -420,10 +395,10 @@ defmodule Cpc.Downloader do
         # downloads directory, but for some reason, the corresponding symlink was not created.
         [_, file_size_str] = headers
                              |> headers_to_lower
-                             |> Enum.find_value(fn x -> case x do
-                                                  {"content-range", "bytes " <> rest} -> rest
-                                                  _ -> false
-                                                end end)
+                             |> Enum.find_value(fn
+                                  {"content-range", "bytes " <> rest} -> rest
+                                  _ -> false
+                             end)
                              |> String.split("/")
         file_size = String.to_integer(file_size_str)
         {:error, {:range_not_satisfiable, file_size}}
