@@ -2,6 +2,7 @@ defmodule Cpc.Filewatcher do
   require Logger
   use GenServer
   @interval 5
+  @timeout "3s" # After get request, wait max. 3 seconds for file to appear.
 
   # Watches the given file and informs the caller when it has grown.
 
@@ -16,7 +17,9 @@ defmodule Cpc.Filewatcher do
   end
 
   def handle_info(:init, state = {filename, 0, _max_size, _receiver}) do
-    :ok = wait_until_file_exists(filename)
+    Logger.debug "Wait until file exists…"
+    :ok = waitforfile(filename)
+    Logger.debug "File exists."
     :erlang.send_after(@interval, self, :timer)
     {:noreply, state}
   end
@@ -36,47 +39,12 @@ defmodule Cpc.Filewatcher do
     end
   end
 
-  defp setup_port(filename) do
-    cmd = "/usr/bin/inotifywait"
-    args = ["-q", "-m", "--format", "%e %f", "-e", "create", filename]
-    _ = Port.open({:spawn_executable, cmd}, [{:args, args}, :stream, :binary, :exit_status,
-                                         :hide, :use_stdio, :stderr_to_stdout])
-  end
-
-  defp wait_until_recvd(expected_output, filepath) do
-    receive do
-        {port, {:data, ^expected_output}} ->
-          {:os_pid, pid} = :erlang.port_info(port, :os_pid)
-          {"", 0} = System.cmd("/usr/bin/kill", [to_string(pid)])
-          true = Port.close(port)
-          :ok
-        {_port, {:data, m = "CREATE " <> _}} ->
-          Logger.debug "Ignored: #{inspect m}"
-          wait_until_recvd(expected_output, filepath)
-        msg ->
-          raise "Unexpected msg: #{inspect msg}"
-    after 4000 ->
-        raise "Timeout while waiting for file #{filepath}"
-    end
-  end
-
-  def wait_until_file_exists(filepath) do
-    if !File.exists?(filepath) do
-      task = Task.async(fn ->
-        # Wrapped in a task so that it has its own mailbox.
-        Logger.debug "Wait until file #{filepath} is created…"
-        {dir, basename} = {Path.dirname(filepath), Path.basename(filepath)}
-        expected_output = "CREATE " <> basename <> "\n"
-        setup_port(dir)
-        if !File.exists?(filepath) do
-          wait_until_recvd(expected_output, filepath)
-        else
-          :ok
-        end
-      end)
-      :ok = Task.await(task)
-    else
-      :ok
+  def waitforfile(filepath) do
+    case System.cmd("/usr/bin/timeout", [@timeout, "/usr/bin/waitforfile", filepath]) do
+      {"", 0} -> :ok
+      {"", 1} -> :invalid_filepath
+      {"", 2} -> :invalid_filepath
+      {"", 124} -> :timeout
     end
   end
 

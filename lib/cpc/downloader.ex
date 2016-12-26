@@ -114,9 +114,6 @@ defmodule Cpc.Downloader do
         reply_header = header(full_content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        # TODO for debugging purposes, just to see how large the timeout should be set.
-        {microsecs, :ok} = :timer.tc(Cpc.Filewatcher, :wait_until_file_exists, [filename])
-        Logger.debug "Waited #{microsecs / 1000} ms for file creation."
         file = File.open!(filename, [:read, :raw])
         {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
         action = {:filewatch, {file, filename}, full_content_length, 0}
@@ -162,8 +159,7 @@ defmodule Cpc.Downloader do
                 "growing file."
     reply_header = header(full_content_length, range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
-    {microsecs, :ok} = :timer.tc(Cpc.Filewatcher, :wait_until_file_exists, [filename])
-    Logger.debug "Waited #{microsecs / 1000} ms for file creation."
+    :ok = Cpc.Filewatcher.waitforfile(filename)
     file = File.open!(filename, [:read, :raw])
     {:noreply, %{state | action: {:filewatch, {file, filename}, full_content_length, 0}}}
   end
@@ -184,9 +180,9 @@ defmodule Cpc.Downloader do
         retrieval_start_method = case hs.range_start do
           nil -> {:file, 0} # send file starting from 0th byte.
           rs  ->
-            case rs < filesize do
-              true  -> {:file, hs.range_start}
-              false -> {:http, hs.range_start}
+            cond do
+              rs <  filesize -> {:file, hs.range_start}
+              rs >= filesize -> {:http, hs.range_start}
             end
         end
         raw_file = File.open!(filename, [:read, :raw])
@@ -262,6 +258,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, :http_eoh}, state = %Dload{action: {:recv_header, hs}}) do
+    Logger.debug "Recvd end of header."
     case get_filename(hs.uri, state.arch) do
       {:database, db_url} ->
         serve_via_redirect(db_url, state)
@@ -270,11 +267,14 @@ defmodule Cpc.Downloader do
       {:partial_file, filename} ->
         serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
+        Logger.debug "Send state? to serializer…"
         send state.serializer, {self(), :state?, filename}
         receive do
           :downloading ->
+            Logger.debug "Serializer answered: :downloading."
             serve_via_growing_file(filename, state, hs.range_start)
           :unknown ->
+            Logger.debug "Serializer answered: :unkown."
             serve_via_http(filename, state, hs)
         end
     end
@@ -321,10 +321,6 @@ defmodule Cpc.Downloader do
 
   def handle_info({:tcp_closed, _}, :sock_closed) do
     Logger.info "Connection closed."
-    {:stop, :normal, nil}
-  end
-
-  def handle_info({:ibrowse_async_response_end, _req_id}, :sock_closed) do
     {:stop, :normal, nil}
   end
 
