@@ -29,8 +29,8 @@ defmodule Cpc.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:distillery, "~> 0.10.1"},
-      {:yaml_elixir, "~> 1.2"},
+      {:distillery, "~> 1.0"},
+      {:yaml_elixir, "~> 1.3"},
       {:ibrowse, "~> 4.2"}
     ]
   end
