@@ -110,7 +110,7 @@ defmodule Cpc.Downloader do
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts, :infinity)
     # TODO we probably don't need to get the content length via mailbox.
     case content_length_from_mailbox() do
-      {:ok, {_, full_content_length}} ->
+      {:ok, full_content_length} ->
         reply_header = header(full_content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
@@ -201,7 +201,7 @@ defmodule Cpc.Downloader do
         opts = [save_response_to_file: {:append, to_charlist(filename)}, stream_to: {self(), :once}]
         {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts)
         case content_length_from_mailbox() do
-          {:ok, {_, full_content_length}} ->
+          {:ok, full_content_length} ->
             file = File.open!(filename, [:read, :raw])
             reply_header = header(full_content_length, hs.range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
@@ -414,7 +414,7 @@ defmodule Cpc.Downloader do
           [_, full_length] = String.split(header_line, "/")
           String.to_integer(full_length)
       end
-      {:ok, {content_length, full_content_length}}
+      {:ok, full_content_length}
     end
   end
 
