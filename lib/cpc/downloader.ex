@@ -258,7 +258,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:http, _, :http_eoh}, state = %Dload{action: {:recv_header, hs}}) do
-    Logger.debug "Recvd end of header."
+    Logger.debug "Received end of header."
     case get_filename(hs.uri, state.arch) do
       {:database, db_url} ->
         serve_via_redirect(db_url, state)
@@ -267,14 +267,13 @@ defmodule Cpc.Downloader do
       {:partial_file, filename} ->
         serve_via_cache_http(state, filename, hs)
       {:not_found, filename} ->
-        Logger.debug "Send state? to serializer…"
         send state.serializer, {self(), :state?, filename}
         receive do
           :downloading ->
-            Logger.debug "Serializer answered: :downloading."
+            Logger.debug "Status of file is: :downloading"
             serve_via_growing_file(filename, state, hs.range_start)
           :unknown ->
-            Logger.debug "Serializer answered: :unkown."
+            Logger.debug "Status of file is: :unknown"
             serve_via_http(filename, state, hs)
         end
     end
@@ -287,7 +286,7 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response, req_id, {:file, _filename}}, state) do
     :ibrowse.stream_next(req_id)
     # ibrowse informs us of the filename where the download has been saved to. We can ignore this,
-    # since we have set the filename ourself (instead of having a random filename chosen by
+    # since we have set the filename ourselves (instead of having a random filename chosen by
     # ibrowse).
     {:noreply, state}
   end
@@ -295,7 +294,6 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{action: {:filewatch, {f, n}, content_length, size}}) do
     :ok = :ibrowse.stream_close(req_id)
-    Logger.debug "Call finalize from async_response_end"
     finalize_download_from_growing_file(state, f, n, size, content_length)
     {:noreply, %{state | req_id: nil,
                          action: {:recv_header, %{uri: nil, range_start: nil}}}}
@@ -319,26 +317,20 @@ defmodule Cpc.Downloader do
     {:noreply, state}
   end
 
-  def handle_info({:tcp_closed, _}, :sock_closed) do
-    Logger.info "Connection closed."
-    {:stop, :normal, nil}
-  end
-
   def handle_info({:tcp_closed, _sock}, _state) do
     Logger.debug "Socket closed by client."
     {:stop, :normal, nil}
   end
 
-  # TODO do we still need the content length and size?
   def handle_cast({:filesize_increased, {n1, prev_size, new_size}},
-              state = %Dload{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
+              state = %Dload{action: {:filewatch, {f, n2}, content_length, _size}}) when n1 == n2 do
     {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
     {:noreply, %{state | action: {:filewatch, {f, n2}, content_length, new_size}}}
   end
 
-  def handle_cast({:file_complete, {n1, prev_size, new_size}},
+  def handle_cast({:file_complete, {n1, _prev_size, new_size}},
               state = %Dload{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
-    Logger.debug "Call finalize from handle_info(:timer, …)"
+    ^new_size = content_length
     finalize_download_from_growing_file(state, f, n2, size, content_length)
     {:noreply, %{state | req_id: nil,
                          action: {:recv_header, %{uri: nil, range_start: nil}}}}
@@ -352,7 +344,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_cast({:filesize_increased, {_filename, _prev_size, _new_size}}, state) do
-    # Can be ignored for the same reasons as :file_complete
+    # Can be ignored for the same reasons as :file_complete:
     # timer still informs us that the file has completed.
     Logger.debug "Ignore file size increase."
     {:noreply, state}
@@ -360,16 +352,13 @@ defmodule Cpc.Downloader do
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
     Logger.debug "Download from growing file complete."
-    Logger.debug "Content-length: #{content_length}, size: #{size}"
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
     Logger.debug "Sendfile has completed."
     :ok = File.close(f)
     :ok = GenServer.cast(state.serializer, {:download_ended, n, self})
     Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
-    Logger.debug "Assertion checked."
     set_symlink(n)
-    _ = Logger.debug "Symlink set."
     :ok = GenServer.cast(state.purger, :purge)
   end
 
@@ -429,14 +418,13 @@ defmodule Cpc.Downloader do
     dirname = Path.dirname(filename)
     download_dir_basename = filename |> Path.dirname |> Path.basename
     target = Path.join(download_dir_basename, basename)
-    Logger.debug "Run ln command…"
+    Logger.debug "Run ln command."
     # Set symlink, unless it already exists. It may already be set if this
     # function was called while the download had already been initiated by
     # another process.
     result = System.cmd("/usr/bin/ln", ["-s", target, basename],
                         cd: Path.join(dirname, ".."),
                         stderr_to_stdout: true)
-    Logger.debug "Done. evaluate result…"
     case result do
       {"", 0} -> :ok
       {output, 1} ->
@@ -447,7 +435,6 @@ defmodule Cpc.Downloader do
           raise output
         end
     end
-    Logger.debug "Done."
   end
 
 

@@ -17,7 +17,7 @@ defmodule Cpc.Filewatcher do
   end
 
   def handle_info(:init, state = {filename, 0, _max_size, _receiver}) do
-    Logger.debug "Wait until file exists…"
+    Logger.debug "Wait until file #{filename} exists…"
     :ok = waitforfile(filename)
     Logger.debug "File exists."
     :erlang.send_after(@interval, self, :timer)

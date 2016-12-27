@@ -30,7 +30,6 @@ defmodule Cpc do
       [x86: _]   -> {:specified, supervisor(Cpc.Listener, [:x86], id: :x86_listener)}
     end
     children = for {:specified, child} <- [arm_child, x86_child], do: child
-    Logger.debug "children: #{inspect children}"
     if children == [] do
       raise "At least one architecture must be specified in #{@config_path}: arm or x86."
     end
