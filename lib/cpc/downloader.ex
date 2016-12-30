@@ -142,7 +142,10 @@ defmodule Cpc.Downloader do
     case range_start do
       nil ->
         {:ok, ^content_length} = :file.sendfile(filename, state.sock)
-      rs ->
+      rs when rs == content_length ->
+        Logger.warn "File is already fully retrieved by client."
+        :ok
+      rs when rs < content_length ->
         Logger.debug "Send partial file, from #{rs} until end."
         f = File.open!(filename, [:read, :raw])
         {:ok, _} = :file.sendfile(f, state.sock, range_start, content_length - rs, [])
@@ -165,37 +168,41 @@ defmodule Cpc.Downloader do
     {:noreply, %{state | action: {:filewatch, {file, filename}, full_content_length, 0}}}
   end
 
-  defp serve_via_cache_http(state, filename, hs) do
+  defp serve_via_cache_and_http(state, filename, hs) do
     # A partial file already exists on the filesystem, but this file was saved in a previous
     # download process that did not finish -- the file is not in the process of being downloaded.
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
     # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
     # via HTTP.
-    send state.serializer, {self(), :state?, filename}
-    receive do
-      :downloading ->
-        serve_via_growing_file(filename, state, hs.range_start)
-      :unknown ->
-        _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
-        filesize = File.stat!(filename).size
-        retrieval_start_method = case hs.range_start do
-          nil -> {:file, 0} # send file starting from 0th byte.
-          rs  ->
-            cond do
-              rs <  filesize -> {:file, hs.range_start}
-              rs >= filesize -> {:http, hs.range_start}
-            end
+    filesize = File.stat!(filename).size
+    retrieval_start_method = case hs.range_start do
+      nil -> {:file, 0} # send file starting from 0th byte.
+      rs  ->
+        cond do
+          rs <  filesize -> {:file, hs.range_start}
+          rs >= filesize -> {:http, hs.range_start}
         end
-        raw_file = File.open!(filename, [:read, :raw])
-        {start_http_from_byte, send_from_cache} = case retrieval_start_method do
-          {:file, from} ->
-            send_ = fn ->
-              {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
-            end
-            {filesize, send_}
-          {:http, from} ->
-            {from, fn -> :ok end}
+    end
+    raw_file = File.open!(filename, [:read, :raw])
+    {start_http_from_byte, send_from_cache} = case retrieval_start_method do
+      {:file, from} ->
+        send_ = fn ->
+          {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
         end
+        {filesize, send_}
+      {:http, from} ->
+        {from, fn -> :ok end}
+    end
+    case content_length(hs.uri, state.arch) do
+      cl when cl == start_http_from_byte ->
+        # The client requested a content range, although he already has the entire file.
+        reply_header = header(cl, hs.range_start)
+        :ok = :gen_tcp.send(state.sock, reply_header)
+        _ = Logger.debug "Sent header: #{reply_header}"
+        Logger.warn "File is already fully retrieved by client."
+        {:noreply, %{state | req_id: nil,
+                             action: {:recv_header, %{uri: nil, range_start: nil}}}}
+      cl when cl < start_http_from_byte ->
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, hs.uri)
@@ -239,6 +246,18 @@ defmodule Cpc.Downloader do
     end
   end
 
+  defp serve_via_partial_file(state, filename, hs) do
+    # The requested file already exists in  downloads/ directory, but only partially.
+    send state.serializer, {self(), :state?, filename}
+    receive do
+      :downloading ->
+        serve_via_growing_file(filename, state, hs.range_start)
+      :unknown ->
+        _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
+        serve_via_cache_and_http(state, filename, hs)
+    end
+  end
+
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
                   state = %Dload{action: {:recv_header, hs}}) do
     uri = case path do
@@ -266,7 +285,7 @@ defmodule Cpc.Downloader do
       {:complete_file, filename} ->
         serve_via_cache(filename, state, hs.range_start)
       {:partial_file, filename} ->
-        serve_via_cache_http(state, filename, hs)
+        serve_via_partial_file(state, filename, hs)
       {:not_found, filename} ->
         send state.serializer, {self(), :state?, filename}
         receive do
