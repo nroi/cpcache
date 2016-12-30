@@ -114,6 +114,7 @@ defmodule Cpc.Downloader do
         reply_header = header(full_content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
+        :ok = Cpc.Filewatcher.waitforfile(filename)
         file = File.open!(filename, [:read, :raw])
         {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self, filename, full_content_length})
         action = {:filewatch, {file, filename}, full_content_length, 0}
