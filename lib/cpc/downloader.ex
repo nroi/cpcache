@@ -26,18 +26,26 @@ defmodule Cpc.Downloader do
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
-    complete_file_exists = Enum.member?(File.ls!(dirname), basename)
-    partial_file_exists = Enum.member?(File.ls!(Path.join(dirname, "downloads")), basename)
     is_database = String.ends_with?(basename, ".db")
+    {partial_file_exists, complete_file_exists} = with false <- is_database do
+      case File.stat(Path.join(dirname, basename)) do
+        {:error, :enoent} -> {false, false}
+        {:ok, %File.Stat{size: size}} ->
+          case content_length(uri, arch) do
+            ^size ->             {true, true}
+            cl when cl > size -> {true, false}
+          end
+      end
+    end
     case {is_database, complete_file_exists, partial_file_exists} do
       {true, _, _} ->
         {:database, Path.join(mirror, uri)}
       {false, false, false} ->
-        {:not_found, Path.join([dirname, "downloads", basename])}
+        {:not_found, Path.join([dirname, basename])}
       {false, true, _} ->
         {:complete_file, filename}
       {false, false, true} ->
-        {:partial_file, Path.join([dirname, "downloads", basename])}
+        {:partial_file, Path.join([dirname, basename])}
     end
   end
 
@@ -89,13 +97,42 @@ defmodule Cpc.Downloader do
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
   end
 
-  # Given a filename, fetch the full content-length from the server.
+  # Given the requested URI, fetch the full content-length from the server.
+  # req_uri must be the URI as requested by the user, not the URI that will be used to GET the file
+  # via HTTP.
   def content_length(req_uri, arch) do
-    uri = mirror_uri(req_uri, arch)
-    headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
-      {:ok, {{_, 200, 'OK'}, headers, _}} -> headers_to_lower(headers)
+    db_result = :mnesia.transaction(fn ->
+      :mnesia.read({ContentLength, req_uri})
+    end)
+    result = case db_result do
+      {:atomic, [{ContentLength, ^req_uri, content_length}]} -> {:ok, content_length}
+      {:atomic, []} -> :not_found
     end
-    :proplists.get_value("content-length", headers) |> String.to_integer
+    case result do
+      {:ok, content_length} ->
+        Logger.debug "Retrieve content-length for #{req_uri} from cache."
+        content_length
+      :not_found ->
+        Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
+        uri = mirror_uri(req_uri, arch)
+        headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
+          {:ok, {{_, 200, 'OK'}, headers, _}} -> headers_to_lower(headers)
+        end
+        content_length = :proplists.get_value("content-length", headers) |> String.to_integer
+        {:atomic, :ok} = :mnesia.transaction(fn ->
+          :mnesia.write({ContentLength, req_uri, content_length})
+        end)
+        content_length
+    end
+  end
+
+  # Write the content length into an mnesia database
+  def cache_content_length(uri, content_length) do
+    Logger.debug "Write content length #{content_length} for uri #{uri} to cache."
+    {:atomic, :ok} = :mnesia.transaction(fn ->
+      :mnesia.write({ContentLength, uri, content_length})
+    end)
+    :ok
   end
 
   defp serve_via_http(filename, state, hs) do
@@ -108,9 +145,9 @@ defmodule Cpc.Downloader do
     end
     opts = [save_response_to_file: to_charlist(filename), stream_to: {self(), :once}]
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts, :infinity)
-    # TODO we probably don't need to get the content length via mailbox.
     case content_length_from_mailbox() do
       {:ok, full_content_length} ->
+        cache_content_length(hs.uri, full_content_length)
         reply_header = header(full_content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
@@ -184,6 +221,7 @@ defmodule Cpc.Downloader do
         end
     end
     raw_file = File.open!(filename, [:read, :raw])
+    Logger.debug "Start of requested content-range: #{hs.range_start}"
     {start_http_from_byte, send_from_cache} = case retrieval_start_method do
       {:file, from} ->
         send_ = fn ->
@@ -193,8 +231,13 @@ defmodule Cpc.Downloader do
       {:http, from} ->
         {from, fn -> :ok end}
     end
+    Logger.debug "Start HTTP download from byte #{start_http_from_byte}"
+    range_start = hs.range_start
     case content_length(hs.uri, state.arch) do
-      cl when cl == start_http_from_byte ->
+      cl when cl == filesize ->
+        Logger.warn "The entire file has already been downloaded by the server."
+        serve_via_cache(filename, state, hs.range_start)
+      cl when cl == range_start ->
         # The client requested a content range, although he already has the entire file.
         reply_header = header(cl, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
@@ -202,7 +245,7 @@ defmodule Cpc.Downloader do
         Logger.warn "File is already fully retrieved by client."
         {:noreply, %{state | req_id: nil,
                              action: {:recv_header, %{uri: nil, range_start: nil}}}}
-      cl when cl > start_http_from_byte ->
+      _ ->
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, hs.uri)
@@ -210,6 +253,7 @@ defmodule Cpc.Downloader do
         {:ibrowse_req_id, req_id} = :ibrowse.send_req(to_charlist(url), headers, :get, [], opts)
         case content_length_from_mailbox() do
           {:ok, full_content_length} ->
+            cache_content_length(url, full_content_length)
             file = File.open!(filename, [:read, :raw])
             reply_header = header(full_content_length, hs.range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
@@ -227,27 +271,12 @@ defmodule Cpc.Downloader do
             _ = Logger.debug "Sent header: #{reply_header}"
             {:noreply, %{state | req_id: nil,
                                  action: {:recv_header, %{uri: nil, range_start: nil}}}}
-          {:error, {:range_not_satisfiable, filesize}} ->
-            case File.stat!(filename).size do
-              ^filesize ->
-                send state.serializer, {self(), :complete}
-                Logger.warn "Server replied with 416: Range not satisfiable, probably " <>
-                "because no symlink was set after the file was downloaded. Set symlink now."
-                receive do
-                  {:ibrowse_async_response, _req_id, body} ->
-                    Logger.debug "Ignore response body: #{inspect body}"
-                end
-                set_symlink(filename)
-                serve_via_cache(filename, state, hs.range_start)
-              _size ->
-                raise("Server replied with 416: Range not satisfiable")
-            end
         end
     end
   end
 
   defp serve_via_partial_file(state, filename, hs) do
-    # The requested file already exists in  downloads/ directory, but only partially.
+    # The requested file already exists, but its size is smaller than the content length
     send state.serializer, {self(), :state?, filename}
     receive do
       :downloading ->
@@ -378,7 +407,6 @@ defmodule Cpc.Downloader do
     :ok = GenServer.cast(state.serializer, {:download_ended, n, self})
     Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
-    set_symlink(n)
     :ok = GenServer.cast(state.purger, :purge)
   end
 
@@ -396,8 +424,8 @@ defmodule Cpc.Downloader do
         Logger.warn "Mirror returned 404."
         {:error, :not_found}
       {:ibrowse_async_headers, _req_id, '416', headers} ->
-        # range not satisfiable -- this may happen when a complete file is stored inside the
-        # downloads directory, but for some reason, the corresponding symlink was not created.
+        # range not satisfiable -- this may happen when a complete file has been downloaded,
+        # but for some reason, the conten lenght has not been saved in the database.
         [_, file_size_str] = headers
                              |> headers_to_lower
                              |> Enum.find_value(fn
@@ -431,30 +459,6 @@ defmodule Cpc.Downloader do
     Enum.map(headers, fn {key, val} ->
       {key |> to_string |> String.downcase, val |> to_string |> String.downcase}
     end)
-  end
-
-  defp set_symlink(filename) do
-    basename = Path.basename(filename)
-    dirname = Path.dirname(filename)
-    download_dir_basename = filename |> Path.dirname |> Path.basename
-    target = Path.join(download_dir_basename, basename)
-    Logger.debug "Run ln command."
-    # Set symlink, unless it already exists. It may already be set if this
-    # function was called while the download had already been initiated by
-    # another process.
-    result = System.cmd("/usr/bin/ln", ["-s", target, basename],
-                        cd: Path.join(dirname, ".."),
-                        stderr_to_stdout: true)
-    case result do
-      {"", 0} -> :ok
-      {output, 1} ->
-        if String.ends_with?(output, "File exists\n") do
-          Logger.debug "Symlink already exists."
-          :ok
-        else
-          raise output
-        end
-    end
   end
 
 
