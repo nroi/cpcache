@@ -202,7 +202,7 @@ defmodule Cpc.Downloader do
         Logger.warn "File is already fully retrieved by client."
         {:noreply, %{state | req_id: nil,
                              action: {:recv_header, %{uri: nil, range_start: nil}}}}
-      cl when cl < start_http_from_byte ->
+      cl when cl > start_http_from_byte ->
         headers = [{"Range", "bytes=#{start_http_from_byte}-"}]
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, hs.uri)
