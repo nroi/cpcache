@@ -27,15 +27,17 @@ defmodule Cpc.Downloader do
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
     is_database = String.ends_with?(basename, ".db")
-    {partial_file_exists, complete_file_exists} = with false <- is_database do
-      case File.stat(Path.join(dirname, basename)) do
-        {:error, :enoent} -> {false, false}
-        {:ok, %File.Stat{size: size}} ->
-          case content_length(uri, arch) do
-            ^size ->             {true, true}
-            cl when cl > size -> {true, false}
-          end
-      end
+    {partial_file_exists, complete_file_exists} = case is_database do
+      true -> {false, false}
+      false ->
+        case File.stat(Path.join(dirname, basename)) do
+          {:error, :enoent} -> {false, false}
+          {:ok, %File.Stat{size: size}} ->
+            case content_length(uri, arch) do
+              ^size ->             {true, true}
+              cl when cl > size -> {true, false}
+            end
+        end
     end
     case {is_database, complete_file_exists, partial_file_exists} do
       {true, _, _} ->
