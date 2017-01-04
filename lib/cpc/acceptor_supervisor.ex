@@ -9,7 +9,7 @@ defmodule Cpc.AcceptorSupervisor do
       :arm -> {:arm_supervisor, :arm_serializer}
     end
     children = [
-      worker(Cpc.Downloader, [serializer, arch], restart: :temporary)
+      worker(Cpc.ClientRequest, [serializer, arch], restart: :temporary)
     ]
     opts = [strategy: :simple_one_for_one]
     {:ok, sup_pid} = Supervisor.start_link(children, opts)
