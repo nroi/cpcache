@@ -7,12 +7,12 @@ defmodule Cpc.Filewatcher do
   # Watches the given file and informs the caller when it has grown.
 
   def start_link(receiver, filename, max_size) do
-    GenServer.start_link(__MODULE__, [receiver, filename, max_size])
+    GenServer.start_link(__MODULE__, {receiver, filename, max_size})
   end
 
   def init({receiver, filename, max_size}) do
     Logger.debug "Init Filewatcher for file #{filename}"
-    send self, :init
+    send self(), :init
     {:ok, {filename, 0, max_size, receiver}}
   end
 
@@ -20,22 +20,21 @@ defmodule Cpc.Filewatcher do
     Logger.debug "Wait until file #{filename} exists…"
     :ok = waitforfile(filename)
     Logger.debug "File exists."
-    :erlang.send_after(@interval, self, :timer)
-    {:noreply, state}
+    loop(state)
   end
 
-  def handle_info(:timer, state = {filename, prev_size, max_size, receiver}) do
+  defp loop(state = {filename, prev_size, max_size, receiver}) do
     case File.stat!(filename).size do
       ^prev_size ->
-        :erlang.send_after(@interval, self(), :timer)
-        {:noreply, state}
+        :timer.sleep(@interval)
+        loop(state)
       ^max_size ->
         :ok = GenServer.cast(receiver, {:file_complete, {filename, prev_size, max_size}})
         {:stop, :normal, nil}
       new_size when new_size > prev_size ->
         :ok = GenServer.cast(receiver, {:filesize_increased, {filename, prev_size, new_size}})
-        :erlang.send_after(@interval, self(), :timer)
-        {:noreply, {filename, new_size, max_size, receiver}}
+        :timer.sleep(@interval)
+        loop({filename, new_size, max_size, receiver})
     end
   end
 

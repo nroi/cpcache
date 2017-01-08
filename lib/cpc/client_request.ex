@@ -139,7 +139,7 @@ defmodule Cpc.ClientRequest do
         _ = Logger.debug "Sent header: #{reply_header}"
         :ok = Cpc.Filewatcher.waitforfile(filename)
         file = File.open!(filename, [:read, :raw])
-        {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self(), filename, content_length})
+        {:ok, _} = Cpc.Filewatcher.start_link(self(), filename, content_length)
         action = {:filewatch, {file, filename}, content_length, 0}
         {:noreply, %{state | action: action}}
       :not_found ->
