@@ -7,8 +7,8 @@ defmodule Cpc.ClientRequest do
             arch: nil,
             serializer: nil,
             purger: nil,
+            sent_header: false,
             action: nil,
-            req_id: nil,
             timer_ref: nil
 
   def start_link(serializer, arch, sock, purger) do
@@ -16,7 +16,13 @@ defmodule Cpc.ClientRequest do
                                          arch: arch,
                                          serializer: serializer,
                                          purger: purger,
+                                         sent_header: false,
                                          action: {:recv_header, %{uri: nil, range_start: nil}}})
+  end
+
+  def init(state) do
+    Process.flag(:trap_exit, true)
+    {:ok, state}
   end
 
   # TODO we still have two downloads if one client downloads the file from start, the other client
@@ -94,6 +100,16 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
+  defp header_500() do
+    date = to_string(:httpd_util.rfc1123_date)
+    "HTTP/1.1 301 Internal Server Error\r\n" <>
+    "Server: cpc\r\n" <>
+    "Date: #{date}\r\n" <>
+    "Content-Type: text/html\r\n" <>
+    "Content-Length: 0\r\n" <>
+    "\r\n"
+  end
+
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
   def mirror_uri(uri, arch) do
     [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, arch)
@@ -142,18 +158,20 @@ defmodule Cpc.ClientRequest do
         file = File.open!(filename, [:read, :raw])
         {:ok, _} = Cpc.Filewatcher.start_link(self(), filename, content_length)
         action = {:filewatch, {file, filename}, content_length, 0}
-        {:noreply, %{state | action: action}}
+        {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
-        {:noreply, %{state | action: {:recv_header, %{uri: nil, range_start: nil}}}}
+        action = {:recv_header, %{uri: nil, range_start: nil}}
+        {:noreply, %{state | sent_header: true, action: action}}
     end
   end
 
   defp serve_via_redirect(db_url, state) do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
     :ok = :gen_tcp.send(state.sock, header_301(db_url))
-    {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
+    action = {:recv_header, %{uri: nil, range_start: nil}}
+    {:noreply, %{state | sent_header: true, action: action}}
   end
 
   defp serve_via_cache(filename, state, range_start) do
@@ -174,7 +192,8 @@ defmodule Cpc.ClientRequest do
         :ok = File.close(f)
     end
     _ = Logger.debug "Download from cache complete."
-    {:noreply, %{state | req_id: nil, action: {:recv_header, %{uri: nil, range_start: nil}}}}
+    action = {:recv_header, %{uri: nil, range_start: nil}}
+    {:noreply, %{state | sent_header: true, action: action}}
   end
 
   defp serve_via_growing_file(filename, state, range_start) do
@@ -187,7 +206,8 @@ defmodule Cpc.ClientRequest do
     :ok = :gen_tcp.send(state.sock, reply_header)
     :ok = Cpc.Filewatcher.waitforfile(filename)
     file = File.open!(filename, [:read, :raw])
-    {:noreply, %{state | action: {:filewatch, {file, filename}, full_content_length, 0}}}
+    action = {:filewatch, {file, filename}, full_content_length, 0}
+    {:noreply, %{state | sent_header: true, action: action}}
   end
 
   defp serve_via_cache_and_http(state, filename, hs) do
@@ -228,8 +248,8 @@ defmodule Cpc.ClientRequest do
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         Logger.warn "File is already fully retrieved by client."
-        {:noreply, %{state | req_id: nil,
-                             action: {:recv_header, %{uri: nil, range_start: nil}}}}
+        action = {:recv_header, %{uri: nil, range_start: nil}}
+        {:noreply, %{state | sent_header: true, action: action}}
       _ ->
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, hs.uri)
@@ -244,13 +264,13 @@ defmodule Cpc.ClientRequest do
             :ok = File.close(raw_file)
             {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self(), filename, content_length})
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
-            {:noreply, %{state | action: action}}
+            {:noreply, %{state | sent_header: true, action: action}}
           :not_found ->
             reply_header = header_404()
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            {:noreply, %{state | req_id: nil,
-                                 action: {:recv_header, %{uri: nil, range_start: nil}}}}
+            action = {:recv_header, %{uri: nil, range_start: nil}}
+            {:noreply, %{state | sent_header: true, action: action}}
         end
     end
   end
@@ -310,7 +330,6 @@ defmodule Cpc.ClientRequest do
 
   def handle_info({:tcp_closed, _}, state = %CR{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
-    :ok = :ibrowse.stream_close(state.req_id)
     {:stop, :normal, nil}
   end
 
@@ -324,6 +343,12 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, nil}
   end
 
+  def handle_info({:EXIT, _, :normal}, state) do
+    # Since we're trapping exits, we're notified if a linked process died, even if it died with
+    # status :normal.
+    {:noreply, state}
+  end
+
   def handle_cast({:filesize_increased, {n1, prev_size, new_size}},
               state = %CR{action: {:filewatch, {f, n2}, content_length, _size}}) when n1 == n2 do
     {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
@@ -334,8 +359,7 @@ defmodule Cpc.ClientRequest do
               state = %CR{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
     ^new_size = content_length
     finalize_download_from_growing_file(state, f, n2, size, content_length)
-    {:noreply, %{state | req_id: nil,
-                         action: {:recv_header, %{uri: nil, range_start: nil}}}}
+    {:noreply, %{state | action: {:recv_header, %{uri: nil, range_start: nil}}}}
   end
 
   def handle_cast({:file_complete, {_filename, _prev_size, _new_size}}, state) do
@@ -363,9 +387,16 @@ defmodule Cpc.ClientRequest do
     :ok = GenServer.cast(state.purger, :purge)
   end
 
-  # TODO: check the reason. If it's not :normal, check the state. If the header has not yet been
-  # sent to the client, send a 500 response instead of just failing.
-  # def terminate(reason, state) do
-  # end
+  def terminate(:normal, _state) do
+    :ok
+  end
+  def terminate(status, state = %CR{sock: sock, sent_header: sent_header}) do
+    Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
+    if !sent_header do
+      reply_header = header_500()
+      _ = :gen_tcp.send(sock, reply_header)
+    end
+    _ = :gen_tcp.close(sock)
+  end
 
 end
