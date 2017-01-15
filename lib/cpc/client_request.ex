@@ -308,33 +308,6 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  def handle_info({:ibrowse_async_response, _req_id, {:error, error}}, _state) do
-    raise "Error while processing get request: #{inspect error}"
-  end
-
-  def handle_info({:ibrowse_async_response, req_id, {:file, _filename}}, state) do
-    :ibrowse.stream_next(req_id)
-    # ibrowse informs us of the filename where the download has been saved to. We can ignore this,
-    # since we have set the filename ourselves (instead of having a random filename chosen by
-    # ibrowse).
-    {:noreply, state}
-  end
-
-  def handle_info({:ibrowse_async_response_end, req_id},
-                  state = %CR{action: {:filewatch, {f, n}, content_length, size}}) do
-    :ok = :ibrowse.stream_close(req_id)
-    finalize_download_from_growing_file(state, f, n, size, content_length)
-    {:noreply, %{state | req_id: nil,
-                         action: {:recv_header, %{uri: nil, range_start: nil}}}}
-  end
-
-  def handle_info({:ibrowse_async_response_end, _req_id}, state) do
-    # Safe to ignore: Sometimes, we receive :file_complete before ibrowse informs us that the GET
-    # request has completed.
-    {:noreply, state}
-  end
-
-
   def handle_info({:tcp_closed, _}, state = %CR{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     :ok = :ibrowse.stream_close(state.req_id)
