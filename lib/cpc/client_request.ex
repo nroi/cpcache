@@ -1,5 +1,6 @@
 defmodule Cpc.ClientRequest do
   alias Cpc.ClientRequest, as: CR
+  alias Cpc.Utils
   require Logger
   use GenServer
   defstruct sock: nil,
@@ -7,7 +8,7 @@ defmodule Cpc.ClientRequest do
             serializer: nil,
             purger: nil,
             action: nil,
-            req_id: nil,  # TODO obsolete
+            req_id: nil,
             timer_ref: nil
 
   def start_link(serializer, arch, sock, purger) do
@@ -118,7 +119,7 @@ defmodule Cpc.ClientRequest do
         Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
         uri = mirror_uri(req_uri, arch)
         headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
-          {:ok, {{_, 200, 'OK'}, headers, _}} -> headers_to_lower(headers)
+          {:ok, {{_, 200, 'OK'}, headers, _}} -> Utils.headers_to_lower(headers)
         end
         content_length = :proplists.get_value("content-length", headers) |> String.to_integer
         {:atomic, :ok} = :mnesia.transaction(fn ->
@@ -387,13 +388,6 @@ defmodule Cpc.ClientRequest do
     Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
     :ok = GenServer.cast(state.purger, :purge)
-  end
-
-  # TODO remove
-  defp headers_to_lower(headers) do
-    Enum.map(headers, fn {key, val} ->
-      {key |> to_string |> String.downcase, val |> to_string |> String.downcase}
-    end)
   end
 
   # TODO: check the reason. If it's not :normal, check the state. If the header has not yet been

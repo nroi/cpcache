@@ -1,6 +1,7 @@
 defmodule Cpc.Downloader do
   require Logger
   use GenServer
+  alias Cpc.Utils
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
@@ -41,7 +42,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:ibrowse_async_headers, req_id, '200', headers}, state = {url, _, receiver}) do
-    headers = headers_to_lower(headers)
+    headers = Utils.headers_to_lower(headers)
     content_length = :proplists.get_value("content-length", headers) |> String.to_integer
     send receiver, {:content_length, content_length}
     path = url_without_host(url)
@@ -56,7 +57,7 @@ defmodule Cpc.Downloader do
   # When content-ranges are used, the server replies with the length of the partial file. However,
   # we need to return the content length of the entire file to the client.
   def handle_info({:ibrowse_async_headers, req_id, '206', headers}, state = {url, _, receiver}) do
-    headers = headers_to_lower(headers)
+    headers = Utils.headers_to_lower(headers)
     content_length = :proplists.get_value("content-length", headers) |> String.to_integer
     header_line = :proplists.get_value("content-range", headers)
     [_, full_length] = String.split(header_line, "/")
@@ -88,9 +89,4 @@ defmodule Cpc.Downloader do
     url |> to_string |> URI.path_to_segments |> Enum.drop(-2) |> Enum.reverse |> Path.join
   end
 
-  defp headers_to_lower(headers) do
-    Enum.map(headers, fn {key, val} ->
-      {key |> to_string |> String.downcase, val |> to_string |> String.downcase}
-    end)
-  end
 end
