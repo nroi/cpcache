@@ -1,5 +1,6 @@
 defmodule Cpc.ClientRequest do
   alias Cpc.ClientRequest, as: CR
+  alias Cpc.Filewatcher
   alias Cpc.Utils
   require Logger
   use GenServer
@@ -154,9 +155,9 @@ defmodule Cpc.ClientRequest do
         reply_header = header(content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        :ok = Cpc.Filewatcher.waitforfile(filename)
+        :ok = Filewatcher.waitforfile(filename)
         file = File.open!(filename, [:read, :raw])
-        {:ok, _} = Cpc.Filewatcher.start_link(self(), filename, content_length)
+        {:ok, _} = Filewatcher.start_link(self(), filename, content_length)
         action = {:filewatch, {file, filename}, content_length, 0}
         {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
@@ -199,12 +200,12 @@ defmodule Cpc.ClientRequest do
   defp serve_via_growing_file(filename, state, range_start) do
     %CR{action: {:recv_header, %{uri: uri}}} = state
     full_content_length = content_length(uri, state.arch)
-    {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self(), filename, full_content_length})
+    {:ok, _} = Filewatcher.start_link(self(), filename, full_content_length)
     Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
     reply_header = header(full_content_length, range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
-    :ok = Cpc.Filewatcher.waitforfile(filename)
+    :ok = Filewatcher.waitforfile(filename)
     file = File.open!(filename, [:read, :raw])
     action = {:filewatch, {file, filename}, full_content_length, 0}
     {:noreply, %{state | sent_header: true, action: action}}
@@ -226,7 +227,7 @@ defmodule Cpc.ClientRequest do
         end
     end
     raw_file = File.open!(filename, [:read, :raw])
-    Logger.debug "Start of requested content-range: #{hs.range_start}"
+    Logger.debug "Start of requested content-range: #{inspect hs.range_start}"
     {start_http_from_byte, send_from_cache} = case retrieval_start_method do
       {:file, from} ->
         send_ = fn ->
@@ -262,7 +263,10 @@ defmodule Cpc.ClientRequest do
             _ = Logger.debug "Sent header: #{reply_header}"
             send_from_cache.()
             :ok = File.close(raw_file)
-            {:ok, _} = GenServer.start_link(Cpc.Filewatcher, {self(), filename, content_length})
+            {:ok, _} = Filewatcher.start_link(self(),
+                                              filename,
+                                              content_length,
+                                              start_http_from_byte)
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
             {:noreply, %{state | sent_header: true, action: action}}
           :not_found ->
@@ -328,7 +332,7 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  def handle_info({:tcp_closed, _}, state = %CR{action: {:filewatch, {_, n}, _, _}}) do
+  def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     {:stop, :normal, nil}
   end

@@ -5,6 +5,7 @@ defmodule Cpc.Downloader do
   alias Cpc.Downloader, as: Dload
   defstruct url: nil,
             save_to: nil,
+            start_from: nil,
             receiver: nil,
             req_id: nil
 
@@ -37,7 +38,11 @@ defmodule Cpc.Downloader do
     end
     opts = [save_response_to_file: srtf, stream_to: {self(), :once}]
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(url, headers, :get, [], opts, :infinity)
-    state = %Dload{url: url, save_to: save_to, receiver: receiver, req_id: req_id}
+    state = %Dload{url: url,
+                   save_to: save_to,
+                   start_from: start_from,
+                   receiver: receiver,
+                   req_id: req_id}
     {:noreply, state}
   end
 
@@ -65,13 +70,12 @@ defmodule Cpc.Downloader do
   # we need to return the content length of the entire file to the client.
   def handle_info({:ibrowse_async_headers, req_id, '206', headers}, state = %Dload{}) do
     headers = Utils.headers_to_lower(headers)
-    content_length = :proplists.get_value("content-length", headers) |> String.to_integer
     header_line = :proplists.get_value("content-range", headers)
     [_, full_length] = String.split(header_line, "/")
     full_content_length = String.to_integer(full_length)
     send state.receiver, {:content_length, full_content_length}
     path = url_without_host(state.url)
-    Logger.debug "Write content length #{content_length} for path #{path} to cache."
+    Logger.debug "Write content length #{full_content_length} for path #{path} to cache."
     {:atomic, :ok} = :mnesia.transaction(fn ->
       :mnesia.write({ContentLength, path, full_content_length})
     end)

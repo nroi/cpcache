@@ -6,17 +6,17 @@ defmodule Cpc.Filewatcher do
 
   # Watches the given file and informs the caller when it has grown.
 
-  def start_link(receiver, filename, max_size) do
-    GenServer.start_link(__MODULE__, {receiver, filename, max_size})
+  def start_link(receiver, filename, max_size, start_size \\ 0) do
+    GenServer.start_link(__MODULE__, {receiver, filename, max_size, start_size})
   end
 
-  def init({receiver, filename, max_size}) do
+  def init({receiver, filename, max_size, start_size}) do
     Logger.debug "Init Filewatcher for file #{filename}"
     send self(), :init
-    {:ok, {filename, 0, max_size, receiver}}
+    {:ok, {filename, start_size, max_size, receiver}}
   end
 
-  def handle_info(:init, state = {filename, 0, _max_size, _receiver}) do
+  def handle_info(:init, state = {filename, _start_size, _max_size, _receiver}) do
     Logger.debug "Wait until file #{filename} exists…"
     :ok = waitforfile(filename)
     Logger.debug "File exists."
@@ -33,6 +33,10 @@ defmodule Cpc.Filewatcher do
         {:stop, :normal, nil}
       new_size when new_size > prev_size ->
         :ok = GenServer.cast(receiver, {:filesize_increased, {filename, prev_size, new_size}})
+        :timer.sleep(@interval)
+        loop({filename, new_size, max_size, receiver})
+      new_size when new_size < prev_size ->
+        # This state can occur when the specified start_size is larger than the initial file size.
         :timer.sleep(@interval)
         loop({filename, new_size, max_size, receiver})
     end
