@@ -4,9 +4,6 @@ cpcache is a central cache for pacman, the package manager of Arch Linux. It req
 configuration, does not bother you with 404 errors and it allows you to utilize the full bandwidth
 even as multiple clients download the same file at the same time.
 
-## Current Status
-Work in progress.
-
 ## How it works
 
 For each incoming GET request, cpcache checks if it can serve the request from
@@ -45,6 +42,13 @@ let's compare cpcache with each of them.
 * Reverse proxy cache using NGINX: Apart from the fact that cpcache can utilize the full bandwidth
   even with multiple concurrent downloads, the setup described in the wiki is quite similar to cpc's
   approach.
+* Proxy cache using [squid](https://wiki.archlinux.org/index.php/Package_Proxy_Cache):
+  From the perspective of the client, cpcache acts like an additional mirror, so that pacman will
+  try another mirror if the machine running cpcache is unreachable. Configuring a proxy
+  cache using squid on the other hand means that all HTTP requests first have to be routed through
+  the machine running squid, which may be undesirable if you cannot rely on that machine being
+  always available. Especially on laptops, you'd have to change the `http_proxy` environment
+  variable whenever you're on the move.
 
 ## Setup with NGINX
 In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
