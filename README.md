@@ -55,6 +55,9 @@ In case you want to use NGINX as reverse proxy, keep in mind that it uses cachin
 will cause timeouts in pacman since downloads then requires a few seconds to start. Use
 `proxy_buffering off;` to prevent this.
 
+## Download updated packages in advance
+Check out [clyde](https://github.com/nroi/clyde) if you want to download packages regularly so that most
+requests can be served from cache.
 
 ## Dependencies
 Apart from Elixir and Erlang, cpcache requires
