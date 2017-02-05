@@ -2,7 +2,7 @@ defmodule Cpc.Filewatcher do
   require Logger
   use GenServer
   @interval 5
-  @timeout "3s" # After get request, wait max. 3 seconds for file to appear.
+  @timeout "3s" # After GET request, wait max. 3 seconds for file to appear.
 
   # Watches the given file and informs the caller when it has grown.
 
