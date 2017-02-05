@@ -13,7 +13,9 @@ defmodule Cpc.Listener do
     {:ok, listening_sock} = :gen_tcp.listen(port, [:binary,
                                                    active: false,
                                                    reuseaddr: true,
-                                                   packet: :http_bin])
+                                                   packet: :http_bin,
+                                                   send_timeout: 1000
+                                                 ])
     Logger.info "Listening on port #{port}"
     {serializer_name, acceptor_name, purger_name} = case arch do
       :x86 -> {:x86_serializer, :x86_supervisor, :x86_purger}
