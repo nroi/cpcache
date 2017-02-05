@@ -103,7 +103,7 @@ defmodule Cpc.ClientRequest do
 
   defp header_500() do
     date = to_string(:httpd_util.rfc1123_date)
-    "HTTP/1.1 301 Internal Server Error\r\n" <>
+    "HTTP/1.1 500 Internal Server Error\r\n" <>
     "Server: cpc\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: text/html\r\n" <>
