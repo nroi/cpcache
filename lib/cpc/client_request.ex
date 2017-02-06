@@ -12,13 +12,18 @@ defmodule Cpc.ClientRequest do
             action: nil,
             timer_ref: nil
 
-  def start_link(serializer, arch, sock, purger) do
-    GenServer.start_link(__MODULE__, %CR{sock: sock,
-                                         arch: arch,
-                                         serializer: serializer,
-                                         purger: purger,
-                                         sent_header: false,
-                                         action: {:recv_header, %{uri: nil, range_start: nil}}})
+  def start_link(arch, sock) do
+    {serializer, purger} = case arch do
+      :x86 -> {:x86_serializer, :x86_purger}
+      :arm -> {:arm_serializer, :arm_purger}
+    end
+    state = %CR{sock: sock,
+      arch: arch,
+      serializer: serializer,
+      purger: purger,
+      sent_header: false,
+      action: {:recv_header, %{uri: nil, range_start: nil}}}
+    GenServer.start_link(__MODULE__, state)
   end
 
   def init(state) do

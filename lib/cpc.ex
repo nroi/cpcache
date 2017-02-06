@@ -23,17 +23,18 @@ defmodule Cpc do
     init_config()
     arm_child = case :ets.lookup(:cpc_config, :arm) do
       [arm: nil] -> :not_specified
-      [arm: _]   -> {:specified, supervisor(Cpc.Listener, [:arm], id: :arm_listener)}
+      [arm: _]   -> {:specified, supervisor(Cpc.ArchSupervisor, [:arm], id: :arm_supervisor)}
     end
     x86_child = case :ets.lookup(:cpc_config, :x86) do
       [x86: nil] -> :not_specified
-      [x86: _]   -> {:specified, supervisor(Cpc.Listener, [:x86], id: :x86_listener)}
+      [x86: _]   -> {:specified, supervisor(Cpc.ArchSupervisor, [:x86], id: :x86_supervisor)}
     end
     children = for {:specified, child} <- [arm_child, x86_child], do: child
     if children == [] do
       raise "At least one architecture must be specified in #{@config_path}: arm or x86."
     end
     opts = [strategy: :one_for_one, name: __MODULE__]
-    Supervisor.start_link(children, opts)
+    sup = supervisor(Cpc.AcceptorSupervisor, [])
+    Supervisor.start_link([sup|children], opts)
   end
 end
