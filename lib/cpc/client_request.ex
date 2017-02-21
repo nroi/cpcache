@@ -338,6 +338,7 @@ defmodule Cpc.ClientRequest do
   end
 
   def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
+    # TODO this message is sometimes logged even though the transfer has completed.
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     {:stop, :normal, nil}
   end
