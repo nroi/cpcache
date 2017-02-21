@@ -16,29 +16,32 @@ defmodule Cpc.Filewatcher do
     {:ok, {filename, start_size, max_size, receiver}}
   end
 
-  def handle_info(:init, state = {filename, _start_size, _max_size, _receiver}) do
+  def handle_info(:init, {filename, start_size, max_size, receiver}) do
     Logger.debug "Wait until file #{filename} exists…"
     :ok = waitforfile(filename)
     Logger.debug "File exists."
-    loop(state)
+    loop({filename, start_size, max_size, start_size, receiver})
   end
 
-  defp loop(state = {filename, prev_size, max_size, receiver}) do
+  defp loop(args = {filename, prev_size, max_size, start_size, receiver}) do
     case File.stat!(filename).size do
       ^prev_size ->
         :timer.sleep(@interval)
-        loop(state)
+        loop(args)
       ^max_size ->
         :ok = GenServer.cast(receiver, {:file_complete, {filename, prev_size, max_size}})
         {:stop, :normal, nil}
       new_size when new_size > prev_size ->
-        :ok = GenServer.cast(receiver, {:filesize_increased, {filename, prev_size, new_size}})
+        # If this is the first time the start_size threshold was exceeded, we report start_size as
+        # the previous size.
+        clean_prev_size = max(start_size, prev_size)
+        :ok = GenServer.cast(receiver, {:filesize_increased, {filename, clean_prev_size, new_size}})
         :timer.sleep(@interval)
-        loop({filename, new_size, max_size, receiver})
+        loop({filename, new_size, max_size, start_size, receiver})
       new_size when new_size < prev_size ->
         # This state can occur when the specified start_size is larger than the initial file size.
         :timer.sleep(@interval)
-        loop({filename, new_size, max_size, receiver})
+        loop({filename, prev_size, max_size, start_size, receiver})
     end
   end
 
