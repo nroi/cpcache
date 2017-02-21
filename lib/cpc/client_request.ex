@@ -74,7 +74,7 @@ defmodule Cpc.ClientRequest do
         ""
       rs ->
         range_end = full_content_length - 1
-        "Content-Range: #{rs}-#{range_end}/#{full_content_length}\r\n"
+        "Content-Range: bytes #{rs}-#{range_end}/#{full_content_length}\r\n"
     end
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 200 OK\r\n" <>
