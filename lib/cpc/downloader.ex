@@ -84,8 +84,8 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info({:ibrowse_async_response, req_id, {:file, _}}, state) do
-    # ibrowse informs us where the file will be saved to — ignored, since we have chosen the
-    # filename ourselves.
+    # ibrowse informs us where the file has been saved to. Ignored, we have other mechanisms in
+    # place to detect when the file has been downloaded completely.
     :ok = :ibrowse.stream_next(req_id)
     {:noreply, state}
   end
