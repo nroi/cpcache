@@ -78,7 +78,7 @@ defmodule Cpc.ClientRequest do
     end
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 200 OK\r\n" <>
-    "Server: cpc\r\n" <>
+    "Server: cpcache\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: application/octet-stream\r\n" <>
     "Content-Length: #{content_length}\r\n" <>
@@ -89,7 +89,7 @@ defmodule Cpc.ClientRequest do
   defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 301 Moved Permanently\r\n" <>
-    "Server: cpc\r\n" <>
+    "Server: cpcache\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: text/html\r\n" <>
     "Content-Length: 0\r\n" <>
@@ -100,7 +100,7 @@ defmodule Cpc.ClientRequest do
   defp header_404() do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 404 Not Found\r\n" <>
-    "Server: cpc\r\n" <>
+    "Server: cpcache\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Length: 0\r\n" <>
     "\r\n"
@@ -109,7 +109,7 @@ defmodule Cpc.ClientRequest do
   defp header_500() do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 500 Internal Server Error\r\n" <>
-    "Server: cpc\r\n" <>
+    "Server: cpcache\r\n" <>
     "Date: #{date}\r\n" <>
     "Content-Type: text/html\r\n" <>
     "Content-Length: 0\r\n" <>
