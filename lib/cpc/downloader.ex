@@ -28,8 +28,8 @@ defmodule Cpc.Downloader do
 
   def handle_info(:init, {url, save_to, receiver, start_from, append}) do
     headers = case start_from do
-      nil ->
-        []
+      nil -> []
+      0 -> []
       rs -> [{"Range", "bytes=#{rs}-"}]
     end
     srtf = case append do

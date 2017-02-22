@@ -154,7 +154,7 @@ defmodule Cpc.ClientRequest do
   defp serve_via_http(filename, state, hs) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     url = mirror_uri(hs.uri, state.arch)
-    Cpc.Downloader.start_link(url, filename, self(), hs.range_start)
+    Cpc.Downloader.start_link(url, filename, self(), 0)
     receive do
       {:content_length, content_length} ->
         reply_header = header(content_length, hs.range_start)
@@ -162,7 +162,11 @@ defmodule Cpc.ClientRequest do
         _ = Logger.debug "Sent header: #{reply_header}"
         :ok = Filewatcher.waitforfile(filename)
         file = File.open!(filename, [:read, :raw])
-        {:ok, _} = Filewatcher.start_link(self(), filename, content_length)
+        start_size = case hs.range_start do
+          nil -> 0
+          rs  -> rs
+        end
+        {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
         action = {:filewatch, {file, filename}, content_length, 0}
         {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
@@ -173,7 +177,15 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  defp serve_via_redirect(db_url, state) do
+  defp serve_package_via_redirect(state, hs) do
+    url = mirror_uri(hs.uri, state.arch)
+    _ = Logger.info "Serve package via http redirect from #{url}."
+    :ok = :gen_tcp.send(state.sock, header_301(url))
+    action = {:recv_header, %{uri: nil, range_start: nil}}
+    {:noreply, %{state | sent_header: true, action: action}}
+  end
+
+  defp serve_db_via_redirect(db_url, state) do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
     :ok = :gen_tcp.send(state.sock, header_301(db_url))
     action = {:recv_header, %{uri: nil, range_start: nil}}
@@ -317,13 +329,22 @@ defmodule Cpc.ClientRequest do
 
   def handle_info({:http, _, :http_eoh}, state = %CR{action: {:recv_header, hs}}) do
     Logger.debug "Received end of header."
+    complete_file_requested = hs.range_start == nil
     case get_filename(hs.uri, state.arch) do
       {:database, db_url} ->
-        serve_via_redirect(db_url, state)
+        serve_db_via_redirect(db_url, state)
       {:complete_file, filename} ->
         serve_via_cache(filename, state, hs.range_start)
       {:partial_file, filename} ->
         serve_via_partial_file(state, filename, hs)
+      {:not_found, filename} when not complete_file_requested ->
+        # No caching is used when the client requested only a part of the file that is not cached.
+        # Caching would be relatively complex in this case: We would need to serve the HTTP request
+        # immediately, while at the same time ensuring that the file stored locally starts at the
+        # first byte of the complete file.
+        _ = Logger.warn "Content range requested, but file is not cached: #{inspect filename}. " <>
+                        "Serve request via redirect."
+        serve_package_via_redirect(state, hs)
       {:not_found, filename} ->
         send state.serializer, {self(), :state?, filename}
         receive do
@@ -344,7 +365,7 @@ defmodule Cpc.ClientRequest do
   end
 
   def handle_info({:http, _sock, http_packet}, state) do
-    Logger.debug "Ignored: #{inspect http_packet}"
+    Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
     {:noreply, state}
   end
 
