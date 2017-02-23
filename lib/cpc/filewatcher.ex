@@ -2,7 +2,6 @@ defmodule Cpc.Filewatcher do
   require Logger
   use GenServer
   @interval 5
-  @timeout "3s" # After GET request, wait max. 3 seconds for file to appear.
 
   # Watches the given file and informs the caller when it has grown.
 
@@ -17,9 +16,6 @@ defmodule Cpc.Filewatcher do
   end
 
   def handle_info(:init, {filename, start_size, max_size, receiver}) do
-    Logger.debug "Wait until file #{filename} exists…"
-    :ok = waitforfile(filename)
-    Logger.debug "File exists."
     loop({filename, start_size, max_size, start_size, receiver})
   end
 
@@ -42,15 +38,6 @@ defmodule Cpc.Filewatcher do
         # This state can occur when the specified start_size is larger than the initial file size.
         :timer.sleep(@interval)
         loop({filename, prev_size, max_size, start_size, receiver})
-    end
-  end
-
-  def waitforfile(filepath) do
-    case System.cmd("/usr/bin/timeout", [@timeout, "/usr/bin/waitforfile", filepath]) do
-      {"", 0} -> :ok
-      {"", 1} -> :invalid_filepath
-      {"", 2} -> :invalid_filepath
-      {"", 124} -> :timeout
     end
   end
 

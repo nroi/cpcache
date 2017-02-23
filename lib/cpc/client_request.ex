@@ -160,7 +160,6 @@ defmodule Cpc.ClientRequest do
         reply_header = header(content_length, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        :ok = Filewatcher.waitforfile(filename)
         file = File.open!(filename, [:read, :raw])
         start_size = case hs.range_start do
           nil -> 0
@@ -222,7 +221,6 @@ defmodule Cpc.ClientRequest do
                 "growing file."
     reply_header = header(full_content_length, range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
-    :ok = Filewatcher.waitforfile(filename)
     file = File.open!(filename, [:read, :raw])
     action = {:filewatch, {file, filename}, full_content_length, 0}
     {:noreply, %{state | sent_header: true, action: action}}
@@ -271,7 +269,7 @@ defmodule Cpc.ClientRequest do
       _ ->
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, hs.uri)
-        Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte, true)
+        Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])

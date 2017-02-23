@@ -12,31 +12,26 @@ defmodule Cpc.Downloader do
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
 
-  def start_link(url, save_to, receiver, start_from \\ nil, append \\ false) do
+  def start_link(url, save_to, receiver, start_from \\ nil) do
     GenServer.start_link(__MODULE__, {to_charlist(url),
                                       to_charlist(save_to),
                                       receiver,
-                                      start_from,
-                                      append})
+                                      start_from})
   end
 
-  def init({url, save_to, receiver, start_from, append}) do
+  def init({url, save_to, receiver, start_from}) do
     send self(), :init
     Process.flag(:trap_exit, true)
-    {:ok, {url, save_to, receiver, start_from, append}}
+    {:ok, {url, save_to, receiver, start_from}}
   end
 
-  def handle_info(:init, {url, save_to, receiver, start_from, append}) do
+  def handle_info(:init, {url, save_to, receiver, start_from}) do
     headers = case start_from do
       nil -> []
       0 -> []
       rs -> [{"Range", "bytes=#{rs}-"}]
     end
-    srtf = case append do
-      false -> save_to
-      true ->  {:append, save_to}
-    end
-    opts = [save_response_to_file: srtf, stream_to: {self(), :once}]
+    opts = [save_response_to_file: {:append, save_to}, stream_to: {self(), :once}]
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(url, headers, :get, [], opts, :infinity)
     state = %Dload{url: url,
                    save_to: save_to,
