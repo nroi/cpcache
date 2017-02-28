@@ -34,7 +34,7 @@ defmodule Cpc.Listener do
     # changing the controlling process is supposed to work according to the
     # gen_tcp documentation, but experience shows that this may still cause problems.
     :ok = :gen_tcp.controlling_process(sock, child_pid)
-    :ok = :inet.setopts(sock, active: true)
+    :ok = :inet.setopts(sock, active: :once)
     _ = Logger.debug "Child started, has new socket."
     accept(arch, listening_sock)
   end

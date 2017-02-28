@@ -1,7 +1,7 @@
 defmodule IntegrationTests do
   require Logger
 
-  @host "alarm.local"
+  @host "127.0.0.1"
 
   # Set 'url: "http://repo.helios.click/"' in cpcache.yaml to make use of these test cases.
   # Furthermore, a script called 'clean_test_cache' needs to be in $PATH, it is used to remove all

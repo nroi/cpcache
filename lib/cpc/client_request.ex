@@ -86,6 +86,24 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
+  defp header_100() do
+    date = to_string(:httpd_util.rfc1123_date)
+    "HTTP/1.1 100 Continue\r\n" <>
+    "Server: cpcache\r\n" <>
+    "Date: #{date}\r\n" <>
+    "Content-Length: 0\r\n" <>
+    "\r\n"
+  end
+
+  defp header_200() do
+    date = to_string(:httpd_util.rfc1123_date)
+    "HTTP/1.1 200 OK\r\n" <>
+    "Server: cpcache\r\n" <>
+    "Date: #{date}\r\n" <>
+    "Content-Length: 0\r\n" <>
+    "\r\n"
+  end
+
   defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 301 Moved Permanently\r\n" <>
@@ -308,6 +326,7 @@ defmodule Cpc.ClientRequest do
 
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
                   state = %CR{action: {:recv_header, hs}}) do
+    :ok = :inet.setopts(state.sock, active: :true)
     uri = case path do
       "/" <> rest -> URI.decode(rest)
     end
@@ -356,10 +375,64 @@ defmodule Cpc.ClientRequest do
     end
   end
 
+  def handle_info({:http, _, {:http_request, :POST, {:abs_path, "/" <> hostname}, _}},
+                  state = %CR{action: {:recv_header, _}}) do
+    Logger.debug "Received POST request for hostname #{hostname}"
+    :ok = :inet.setopts(state.sock, active: :once)
+    {:noreply, %{state | action: {:recv_post_header, hostname}}}
+  end
+
+  def handle_info({:http, _, {:http_header, _, :"Content-Length", _, value}},
+                  state = %CR{action: {:recv_post_header, hostname}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    Logger.debug "Set Content-Length to #{value}"
+    action = {:recv_package_names, {hostname, String.to_integer(value)}}
+    {:noreply, %{state | action: action}}
+  end
+
+  def handle_info({:http, _, {:http_header, _, "Expect", _, "100-continue"}},
+                  state = %CR{action: {:recv_package_names, _}}) do
+    _ = Logger.debug "Client expects 100: Continue."
+    :ok = :inet.setopts(state.sock, active: :once)
+    :ok = :gen_tcp.send(state.sock, header_100())
+    {:noreply, state}
+  end
+
+
+  def handle_info({:http, sock, :http_eoh}, %CR{action: {:recv_package_names, {hn, cl}}}) do
+    :ok = :inet.setopts(sock, packet: :raw)
+    content = cond do
+      cl > 0 ->
+        {:ok, content} = :gen_tcp.recv(sock, cl, 500)
+        content
+      cl == 0 ->
+        ""
+    end
+    _ = Logger.debug "Received from #{hn}: #{inspect content}"
+    :ok = :gen_tcp.send(sock, header_200())
+    :ok = :gen_tcp.close(sock)
+    {:ok, file} = File.open("/etc/cpcache/wanted_packages/" <> hn, [:write])
+    :ok = IO.write file, content
+    :ok = File.close(file)
+    {:stop, :normal, nil}
+  end
+
   def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
     # TODO this message is sometimes logged even though the transfer has completed.
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     {:stop, :normal, nil}
+  end
+
+  def handle_info({:http, _sock, http_packet}, state = %CR{action: {:recv_post_header, _}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    _ = Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
+    {:noreply, state}
+  end
+
+  def handle_info({:http, _sock, http_packet}, state = %CR{action: {:recv_package_names, _}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    _ = Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
+    {:noreply, state}
   end
 
   def handle_info({:http, _sock, http_packet}, state) do

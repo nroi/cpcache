@@ -1,7 +1,7 @@
 defmodule Cpc do
   use Application
   require Logger
-  @config_path "/etc/cpcache.yaml"
+  @config_path "/etc/cpcache/cpcache.yaml"
 
   defp stringmap_to_atom(nil), do: nil
   defp stringmap_to_atom(%{"cache_directory" => cd, "port" => port, "url" => url}), do:
