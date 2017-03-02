@@ -14,17 +14,19 @@ defmodule Cpc.Serializer do
       _                        -> false
     end)
     filename_status = case downloading do
-      true -> :downloading
-      false -> :unknown
-    end
-    send from, filename_status
-    new_state = case filename_status do
-      :unknown ->
+      true ->
+        :downloading
+      false ->
         # Create file to avoid race conditions:
         # ibrowse will append to an existing file, other processes can stream from this file.
         # If the file were created by ibrowse, other processes might attempt to read from
         # an non-existing file.
         :ok = File.touch(filename)
+        :unknown
+    end
+    send from, filename_status
+    new_state = case filename_status do
+      :unknown ->
         # the requesting process will initiate the download, hence we note that the file is being
         # downloaded.
         ref = :erlang.monitor(:process, from)
