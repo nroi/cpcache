@@ -18,9 +18,31 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:x86, x86})
   end
 
+  def init_mnesia() do
+    if not Enum.member?(:mnesia.system_info(:tables), ContentLength) do
+      _ = Logger.info "Mnesia table does not exist, will create it."
+      :stopped = :mnesia.stop()
+      case :mnesia.create_schema([node()]) do
+        :ok ->
+          _ = Logger.debug "Successfully created schema for mnesia."
+        {:error, {_, {:already_exists, _}}} ->
+          _ = Logger.debug "Mnesia schema already exists."
+      end
+      :ok = :mnesia.start()
+      options = [attributes: [:path, :content_length], disc_copies: [node()]]
+      case :mnesia.create_table(ContentLength, options) do
+        {:atomic, :ok} ->
+          _ = Logger.debug "Successfully created Mnesia table."
+        {:aborted, {:already_exists, ContentLength}} ->
+          _ = Logger.debug "Mnesia table already exists."
+      end
+    end
+  end
+
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
     init_config()
+    init_mnesia()
     arm_child = case :ets.lookup(:cpc_config, :arm) do
       [arm: nil] -> :not_specified
       [arm: _]   -> {:specified, supervisor(Cpc.ArchSupervisor, [:arm], id: :arm_supervisor)}
