@@ -408,9 +408,9 @@ defmodule Cpc.ClientRequest do
       cl == 0 ->
         ""
     end
-    _ = Logger.debug "Received from #{hn}: #{inspect content}"
     :ok = :gen_tcp.send(sock, header_200())
     :ok = :gen_tcp.close(sock)
+    _ = Logger.debug "Write file for host #{hn}"
     {:ok, file} = File.open("/etc/cpcache/wanted_packages/" <> hn, [:write])
     :ok = IO.write file, content
     :ok = File.close(file)
