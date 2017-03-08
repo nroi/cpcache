@@ -187,6 +187,9 @@ defmodule Cpc.ClientRequest do
         action = {:filewatch, {file, filename}, content_length, 0}
         {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
+        Logger.debug "Remove file #{filename}."
+        # The file was previously created by Cpc.Serializer.
+        :ok = File.rm(filename)
         reply_header = header_404()
         :ok = :gen_tcp.send(state.sock, reply_header)
         action = {:recv_header, %{uri: nil, range_start: nil}}
