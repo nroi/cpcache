@@ -31,11 +31,11 @@ defmodule Cpc.ClientRequest do
     {:ok, state}
   end
 
-  # TODO we still have two downloads if one client downloads the file from start, the other client
-  # is using content ranges.
-
   defp get_filename(uri, arch) do
-    [{^arch, %{cache_directory: cache_dir, url: mirror}}] = :ets.lookup(:cpc_config, arch)
+    cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
+                  [{:cache_directory, cd}] -> Path.join(cd, to_string arch)
+                end
+    [{^arch, %{url: mirror}}] = :ets.lookup(:cpc_config, arch)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -221,7 +221,7 @@ defmodule Cpc.ClientRequest do
       nil ->
         {:ok, ^content_length} = :file.sendfile(filename, state.sock)
       rs when rs == content_length ->
-        Logger.warn "File is already fully retrieved by client."
+        Logger.warn "File is already fully retrieved by the client."
         :ok
       rs when rs < content_length ->
         Logger.debug "Send partial file, from #{rs} until end."
@@ -284,7 +284,7 @@ defmodule Cpc.ClientRequest do
         reply_header = header(cl, hs.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        Logger.warn "File is already fully retrieved by client."
+        Logger.warn "File is already fully retrieved by the client."
         action = {:recv_header, %{uri: nil, range_start: nil}}
         {:noreply, %{state | sent_header: true, action: action}}
       _ ->
@@ -378,18 +378,19 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  def handle_info({:http, _, {:http_request, :POST, {:abs_path, "/" <> hostname}, _}},
+  def handle_info({:http, _, {:http_request, :POST, {:abs_path, "/" <> path}, _}},
                   state = %CR{action: {:recv_header, _}}) do
-    Logger.debug "Received POST request for hostname #{hostname}"
+    [arch, hn] = String.split(path, "/")
+    Logger.debug "Received POST request for architecture #{arch}, hostname #{hn}"
     :ok = :inet.setopts(state.sock, active: :once)
-    {:noreply, %{state | action: {:recv_post_header, hostname}}}
+    {:noreply, %{state | action: {:recv_post_header, {arch, hn}}}}
   end
 
   def handle_info({:http, _, {:http_header, _, :"Content-Length", _, value}},
-                  state = %CR{action: {:recv_post_header, hostname}}) do
+                  state = %CR{action: {:recv_post_header, {arch, hn}}}) do
     :ok = :inet.setopts(state.sock, active: :once)
     Logger.debug "Set Content-Length to #{value}"
-    action = {:recv_package_names, {hostname, String.to_integer(value)}}
+    action = {:recv_package_names, {arch, hn, String.to_integer(value)}}
     {:noreply, %{state | action: action}}
   end
 
@@ -401,8 +402,8 @@ defmodule Cpc.ClientRequest do
     {:noreply, state}
   end
 
-
-  def handle_info({:http, sock, :http_eoh}, %CR{action: {:recv_package_names, {hn, cl}}}) do
+  def handle_info({:http, sock, :http_eoh},
+                  state = %CR{action: {:recv_package_names, {arch, hn, cl}}}) do
     :ok = :inet.setopts(sock, packet: :raw)
     content = cond do
       cl > 0 ->
@@ -414,7 +415,13 @@ defmodule Cpc.ClientRequest do
     :ok = :gen_tcp.send(sock, header_200())
     :ok = :gen_tcp.close(sock)
     _ = Logger.debug "Write file for host #{hn}"
-    {:ok, file} = File.open("/etc/cpcache/wanted_packages/" <> hn, [:write])
+    cache_dir = Cpc.Utils.cache_dir_from_arch(state.arch)
+    path = Path.join([cache_dir, "wanted_packages", arch])
+    case File.mkdir_p(path) do
+      :ok -> :ok
+      {:error, :eexist} -> :ok
+    end
+    {:ok, file} = File.open(Path.join(path, hn), [:write])
     :ok = IO.write file, content
     :ok = File.close(file)
     {:stop, :normal, nil}

@@ -7,8 +7,11 @@ defmodule Cpc.ArchSupervisor do
   end
 
   def init(arch) when arch == :x86 or arch == :arm do
-    [{^arch, ets_map}] = :ets.lookup(:cpc_config, arch)
-    %{cache_directory: cache_directory} = ets_map
+    cache_directory = Cpc.Utils.cache_dir_from_arch(arch)
+    case File.mkdir(cache_directory) do
+      {:error, :eexist} -> :ok
+      :ok -> :ok
+    end
     [{:keep, keep}] = :ets.lookup(:cpc_config, :keep)
     {serializer_name, listener_name, purger_name} = case arch do
       :x86 -> {:x86_serializer, :x86_listener, :x86_purger}
