@@ -122,23 +122,19 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
-  defp header_100() do
+  defp default_header(text) do
     date = to_string(:httpd_util.rfc1123_date)
-    "HTTP/1.1 100 Continue\r\n" <>
-    "Server: cpcache\r\n" <>
-    "Date: #{date}\r\n" <>
-    "Content-Length: 0\r\n" <>
-    "\r\n"
+    "HTTP/1.1 #{text}\r\n" <>
+      "Server: cpcache\r\n" <>
+      "Date: #{date}\r\n" <>
+      "Content-Length: 0\r\n" <>
+      "\r\n"
   end
 
-  defp header_200() do
-    date = to_string(:httpd_util.rfc1123_date)
-    "HTTP/1.1 200 OK\r\n" <>
-    "Server: cpcache\r\n" <>
-    "Date: #{date}\r\n" <>
-    "Content-Length: 0\r\n" <>
-    "\r\n"
-  end
+  defp header_from_code(100), do: default_header("100 Continue")
+  defp header_from_code(200), do: default_header("200 OK")
+  defp header_from_code(403), do: default_header("403 Forbidden")
+  defp header_from_code(500), do: default_header("500 Internal Server Error")
 
   defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
@@ -148,25 +144,6 @@ defmodule Cpc.ClientRequest do
     "Content-Type: text/html\r\n" <>
     "Content-Length: 0\r\n" <>
     "Location: #{location}\r\n" <>
-    "\r\n"
-  end
-
-  defp header_404() do
-    date = to_string(:httpd_util.rfc1123_date)
-    "HTTP/1.1 404 Not Found\r\n" <>
-    "Server: cpcache\r\n" <>
-    "Date: #{date}\r\n" <>
-    "Content-Length: 0\r\n" <>
-    "\r\n"
-  end
-
-  defp header_500() do
-    date = to_string(:httpd_util.rfc1123_date)
-    "HTTP/1.1 500 Internal Server Error\r\n" <>
-    "Server: cpcache\r\n" <>
-    "Date: #{date}\r\n" <>
-    "Content-Type: text/html\r\n" <>
-    "Content-Length: 0\r\n" <>
     "\r\n"
   end
 
@@ -226,7 +203,7 @@ defmodule Cpc.ClientRequest do
         Logger.debug "Remove file #{filename}."
         # The file was previously created by Cpc.Serializer.
         :ok = File.rm(filename)
-        reply_header = header_404()
+        reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
         action = {:recv_header, %{uri: nil, range_start: nil}}
         {:noreply, %{state | sent_header: true, action: action}}
@@ -342,7 +319,7 @@ defmodule Cpc.ClientRequest do
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
             {:noreply, %{state | sent_header: true, action: action}}
           :not_found ->
-            reply_header = header_404()
+            reply_header = header_from_code(404)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
             action = {:recv_header, %{uri: nil, range_start: nil}}
@@ -434,7 +411,7 @@ defmodule Cpc.ClientRequest do
                   state = %CR{action: {:recv_package_names, _}}) do
     _ = Logger.debug "Client expects 100: Continue."
     :ok = :inet.setopts(state.sock, active: :once)
-    :ok = :gen_tcp.send(state.sock, header_100())
+    :ok = :gen_tcp.send(state.sock, header_from_code(100))
     {:noreply, state}
   end
 
@@ -450,7 +427,7 @@ defmodule Cpc.ClientRequest do
     end
     # TODO handle authorization, act accordingly if it failed.
     :ok = authorize(state.auth, content)
-    :ok = :gen_tcp.send(sock, header_200())
+    :ok = :gen_tcp.send(sock, header_from_code(200))
     :ok = :gen_tcp.close(sock)
     _ = Logger.debug "Write file for host #{hn}"
     cache_dir = Cpc.Utils.cache_dir_from_arch(state.arch)
@@ -563,8 +540,7 @@ defmodule Cpc.ClientRequest do
   def terminate(status, state = %CR{sock: sock, sent_header: sent_header}) do
     Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
     if !sent_header do
-      reply_header = header_500()
-      _ = :gen_tcp.send(sock, reply_header)
+        _ = :gen_tcp.send(sock, header_from_code(500))
     end
     _ = :gen_tcp.close(sock)
   end
