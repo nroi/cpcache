@@ -10,6 +10,7 @@ defmodule Cpc do
     config = YamlElixir.read_from_file(@config_path)
     %{"keep" => keep} = config
     %{"cache_directory" => cache_directory} = config
+    recv_packages = config["recv_packages"]
     {arm_map, x86_map} = {Map.get(config, "arm"), Map.get(config, "x86")}
     {arm, x86} = {stringmap_to_atom(arm_map), stringmap_to_atom(x86_map)}
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
@@ -17,6 +18,7 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:arm, arm})
     :ets.insert(:cpc_config, {:x86, x86})
     :ets.insert(:cpc_config, {:cache_directory, cache_directory})
+    :ets.insert(:cpc_config, {:recv_packages, recv_packages})
   end
 
   def init_mnesia() do

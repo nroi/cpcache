@@ -10,7 +10,8 @@ defmodule Cpc.ClientRequest do
             purger: nil,
             sent_header: false,
             action: nil,
-            timer_ref: nil
+            timer_ref: nil,
+            auth: {nil, nil}
 
   def start_link(arch, sock) do
     {serializer, purger} = case arch do
@@ -62,6 +63,41 @@ defmodule Cpc.ClientRequest do
       {false, false, true} ->
         {:partial_file, Path.join([dirname, basename])}
     end
+  end
+
+  defp key_from_config() do
+    case :ets.lookup(:cpc_config, :recv_packages) do
+      [recv_packages: %{"shared_key" => sk}] -> {:ok, sk}
+      _                                      -> {:error, :key_not_found}
+    end
+  end
+
+  defp validate_timestamp(timestamp) do
+    current_time = case :erlang.timestamp() do
+                     {megasecs, secs, _} -> megasecs * 1000000 + secs
+                   end
+    if current_time - timestamp < 60 do
+      :ok
+    else
+      {:error, :timestamp_expired}
+    end
+  end
+
+  defp validate_hmac(content, hmac, key, timestamp) do
+    to_hash = content <> to_string(timestamp) <> "\n"
+    our_hmac = Base.encode16(:crypto.hmac(:sha256, key, to_hash))
+    if String.downcase(hmac) == String.downcase(our_hmac) do
+      :ok
+    else
+      {:error, :invalid_hmac}
+    end
+  end
+
+  def authorize(_auth = {hmac, timestamp}, content) do
+    with :ok <- validate_timestamp(timestamp),
+        {:ok, key} <- key_from_config(),
+         :ok <- validate_hmac(content, hmac, key, timestamp),
+      do: :ok
   end
 
   defp header(full_content_length, range_start) do
@@ -412,6 +448,8 @@ defmodule Cpc.ClientRequest do
       cl == 0 ->
         ""
     end
+    # TODO handle authorization, act accordingly if it failed.
+    :ok = authorize(state.auth, content)
     :ok = :gen_tcp.send(sock, header_200())
     :ok = :gen_tcp.close(sock)
     _ = Logger.debug "Write file for host #{hn}"
@@ -431,6 +469,26 @@ defmodule Cpc.ClientRequest do
     # TODO this message is sometimes logged even though the transfer has completed.
     Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     {:stop, :normal, nil}
+  end
+
+  def handle_info({:http, _sock, {:http_header, _, :Authorization, _, hmac}},
+                  state = %CR{action: {:recv_post_header, _}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    _ = Logger.debug "Received hmac: #{inspect hmac}"
+    new_auth = case state.auth do
+                 {nil, timestamp} -> {hmac, timestamp}
+               end
+    {:noreply, %{state | auth: new_auth}}
+  end
+
+  def handle_info({:http, _sock,  {:http_header, 0, "Timestamp", _, timestamp}},
+                  state = %CR{action: {:recv_post_header, _}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    _ = Logger.debug "Received timestamp: #{inspect timestamp}"
+    new_auth = case state.auth do
+                 {hmac, nil} -> {hmac, String.to_integer(timestamp)}
+               end
+    {:noreply, %{state | auth: new_auth}}
   end
 
   def handle_info({:http, _sock, http_packet}, state = %CR{action: {:recv_post_header, _}}) do
