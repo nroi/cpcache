@@ -8,10 +8,12 @@ defmodule Cpc.ClientRequest do
             arch: nil,
             serializer: nil,
             purger: nil,
-            sent_header: false,
+            sent_header: false, # true if we replied by sending the header to the client
             action: nil,
             timer_ref: nil,
-            auth: {nil, nil}
+            header_fields: [], # the unchanged headers, the way we received them
+            headers: %{}, # a map containing the relevant data extracted from above headers
+            request: nil # GET or POST
 
   def start_link(arch, sock) do
     {serializer, purger} = case arch do
@@ -23,7 +25,7 @@ defmodule Cpc.ClientRequest do
       serializer: serializer,
       purger: purger,
       sent_header: false,
-      action: {:recv_header, %{uri: nil, range_start: nil}}}
+      action: :recv_header}
     GenServer.start_link(__MODULE__, state)
   end
 
@@ -100,6 +102,29 @@ defmodule Cpc.ClientRequest do
       do: :ok
   end
 
+  defp extract_headers(headers) do
+    init_map = %{continue: false, range_start: nil}
+    Enum.reduce(headers, init_map, fn
+      ({:http_header, _, :"Content-Length", _, value}, acc) ->
+        Map.put(acc, :content_length, String.to_integer(value))
+      ({:http_header, _, "Expect", _, "100-continue"}, acc) ->
+        Map.put(acc, :continue, true)
+      ({:http_header, _, "Timestamp", _, timestamp}, acc) ->
+        Map.put(acc, :timestamp, String.to_integer(timestamp))
+      ({:http_header, _, :Authorization, _, hmac}, acc) ->
+        Map.put(acc, :hmac, hmac)
+      ({:http_header, _, :Range, _, range}, acc) ->
+        Map.put(acc, :range_start, case range do
+                                     "bytes=" <> rest ->
+                                       {start, "-"} = Integer.parse(rest)
+                                       start
+                                   end)
+      (m, acc) ->
+        _ = Logger.debug "Ignored: #{inspect m}"
+        acc
+    end)
+  end
+
   defp header(full_content_length, range_start) do
     content_length = case range_start do
       nil -> full_content_length
@@ -134,6 +159,7 @@ defmodule Cpc.ClientRequest do
   defp header_from_code(100), do: default_header("100 Continue")
   defp header_from_code(200), do: default_header("200 OK")
   defp header_from_code(403), do: default_header("403 Forbidden")
+  defp header_from_code(404), do: default_header("404 Not Found")
   defp header_from_code(500), do: default_header("500 Internal Server Error")
 
   defp header_301(location) do
@@ -166,10 +192,10 @@ defmodule Cpc.ClientRequest do
     end
     case result do
       {:ok, content_length} ->
-        Logger.debug "Retrieve content-length for #{req_uri} from cache."
+        _ = Logger.debug "Retrieve content-length for #{req_uri} from cache."
         content_length
       :not_found ->
-        Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
+        _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
         uri = mirror_uri(req_uri, arch)
         headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
           {:ok, {{_, 200, 'OK'}, headers, _}} -> Utils.headers_to_lower(headers)
@@ -182,17 +208,17 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  defp serve_via_http(filename, state, hs) do
+  defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(hs.uri, state.arch)
+    url = mirror_uri(uri, state.arch)
     Cpc.Downloader.start_link(url, filename, self(), 0)
     receive do
       {:content_length, content_length} ->
-        reply_header = header(content_length, hs.range_start)
+        reply_header = header(content_length, state.headers.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         file = File.open!(filename, [:read, :raw])
-        start_size = case hs.range_start do
+        start_size = case state.headers.range_start do
           nil -> 0
           rs  -> rs
         end
@@ -200,29 +226,26 @@ defmodule Cpc.ClientRequest do
         action = {:filewatch, {file, filename}, content_length, 0}
         {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
-        Logger.debug "Remove file #{filename}."
+        _ = Logger.debug "Remove file #{filename}."
         # The file was previously created by Cpc.Serializer.
         :ok = File.rm(filename)
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
-        action = {:recv_header, %{uri: nil, range_start: nil}}
-        {:noreply, %{state | sent_header: true, action: action}}
+        {:noreply, %{state | sent_header: true, action: :recv_header}}
     end
   end
 
-  defp serve_package_via_redirect(state, hs) do
-    url = mirror_uri(hs.uri, state.arch)
+  defp serve_package_via_redirect(state, uri) do
+    url = mirror_uri(uri, state.arch)
     _ = Logger.info "Serve package via http redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
-    action = {:recv_header, %{uri: nil, range_start: nil}}
-    {:noreply, %{state | sent_header: true, action: action}}
+    {:noreply, %{state | sent_header: true, action: :recv_header}}
   end
 
   defp serve_db_via_redirect(db_url, state) do
     _ = Logger.info "Serve database file #{db_url} via http redirect."
     :ok = :gen_tcp.send(state.sock, header_301(db_url))
-    action = {:recv_header, %{uri: nil, range_start: nil}}
-    {:noreply, %{state | sent_header: true, action: action}}
+    {:noreply, %{state | sent_header: true, action: :recv_header}}
   end
 
   defp serve_via_cache(filename, state, range_start) do
@@ -234,49 +257,48 @@ defmodule Cpc.ClientRequest do
       nil ->
         {:ok, ^content_length} = :file.sendfile(filename, state.sock)
       rs when rs == content_length ->
-        Logger.warn "File is already fully retrieved by the client."
+        _ = Logger.warn "File is already fully retrieved by the client."
         :ok
       rs when rs < content_length ->
-        Logger.debug "Send partial file, from #{rs} until end."
+        _ = Logger.debug "Send partial file, from #{rs} until end."
         f = File.open!(filename, [:read, :raw])
         {:ok, _} = :file.sendfile(f, state.sock, range_start, content_length - rs, [])
         :ok = File.close(f)
     end
     _ = Logger.debug "Download from cache complete."
-    action = {:recv_header, %{uri: nil, range_start: nil}}
-    {:noreply, %{state | sent_header: true, action: action}}
+    {:noreply, %{state | sent_header: true, action: :recv_header}}
   end
 
-  defp serve_via_growing_file(filename, state, range_start) do
-    %CR{action: {:recv_header, %{uri: uri}}} = state
+  defp serve_via_growing_file(filename, state) do
+    %CR{request: {:GET, uri}} = state
     full_content_length = content_length(uri, state.arch)
     {:ok, _} = Filewatcher.start_link(self(), filename, full_content_length)
-    Logger.info "File #{filename} is already being downloaded, initiate download from " <>
+    _ = Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
-    reply_header = header(full_content_length, range_start)
+    reply_header = header(full_content_length, state.headers.range_start)
     :ok = :gen_tcp.send(state.sock, reply_header)
     file = File.open!(filename, [:read, :raw])
     action = {:filewatch, {file, filename}, full_content_length, 0}
     {:noreply, %{state | sent_header: true, action: action}}
   end
 
-  defp serve_via_cache_and_http(state, filename, hs) do
+  defp serve_via_cache_and_http(state, filename, uri) do
     # A partial file already exists on the filesystem, but this file was saved in a previous
     # download process that did not finish -- the file is not in the process of being downloaded.
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
     # range that exceeds the amount of bytes we have saved for this file, everything is downloaded
     # via HTTP.
     filesize = File.stat!(filename).size
-    retrieval_start_method = case hs.range_start do
+    retrieval_start_method = case state.headers.range_start do
       nil -> {:file, 0} # send file starting from 0th byte.
       rs  ->
         cond do
-          rs <  filesize -> {:file, hs.range_start}
-          rs >= filesize -> {:http, hs.range_start}
+          rs <  filesize -> {:file, state.headers.range_start}
+          rs >= filesize -> {:http, state.headers.range_start}
         end
     end
     raw_file = File.open!(filename, [:read, :raw])
-    Logger.debug "Start of requested content-range: #{inspect hs.range_start}"
+    _ = Logger.debug "Start of requested content-range: #{inspect state.headers.range_start}"
     {start_http_from_byte, send_from_cache} = case retrieval_start_method do
       {:file, from} ->
         send_ = fn ->
@@ -286,28 +308,27 @@ defmodule Cpc.ClientRequest do
       {:http, from} ->
         {from, fn -> :ok end}
     end
-    Logger.debug "Start HTTP download from byte #{start_http_from_byte}"
-    range_start = hs.range_start
-    case content_length(hs.uri, state.arch) do
+    _ = Logger.debug "Start HTTP download from byte #{start_http_from_byte}"
+    range_start = state.headers.range_start
+    case content_length(uri, state.arch) do
       cl when cl == filesize ->
-        Logger.warn "The entire file has already been downloaded by the server."
-        serve_via_cache(filename, state, hs.range_start)
+        _ = Logger.warn "The entire file has already been downloaded by the server."
+        serve_via_cache(filename, state, range_start)
       cl when cl == range_start ->
         # The client requested a content range, although he already has the entire file.
-        reply_header = header(cl, hs.range_start)
+        reply_header = header(cl, range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        Logger.warn "File is already fully retrieved by the client."
-        action = {:recv_header, %{uri: nil, range_start: nil}}
-        {:noreply, %{state | sent_header: true, action: action}}
+        _ = Logger.warn "File is already fully retrieved by the client."
+        {:noreply, %{state | sent_header: true, action: :recv_header}}
       _ ->
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
-        url = Path.join(mirror, hs.uri)
+        url = Path.join(mirror, uri)
         Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])
-            reply_header = header(content_length, hs.range_start)
+            reply_header = header(content_length, range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
             send_from_cache.()
@@ -322,54 +343,88 @@ defmodule Cpc.ClientRequest do
             reply_header = header_from_code(404)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            action = {:recv_header, %{uri: nil, range_start: nil}}
-            {:noreply, %{state | sent_header: true, action: action}}
+            {:noreply, %{state | sent_header: true, action: :recv_header}}
         end
     end
   end
 
-  defp serve_via_partial_file(state, filename, hs) do
+  defp serve_via_partial_file(state, filename, uri) do
     # The requested file already exists, but its size is smaller than the content length
     send state.serializer, {self(), :state?, filename}
     receive do
       :downloading ->
-        serve_via_growing_file(filename, state, hs.range_start)
+        serve_via_growing_file(filename, state)
       :unknown ->
         _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
-        serve_via_cache_and_http(state, filename, hs)
+        serve_via_cache_and_http(state, filename, uri)
     end
   end
 
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
-                  state = %CR{action: {:recv_header, hs}}) do
-    :ok = :inet.setopts(state.sock, active: :true)
+                  state = %CR{action: :recv_header}) do
+    :ok = :inet.setopts(state.sock, active: :once)
     uri = case path do
       "/" <> rest -> URI.decode(rest)
     end
-    {:noreply, %{state | action: {:recv_header, %{hs | uri: uri}}}}
+    {:noreply, %{state | request: {:GET, uri}}}
   end
 
-
-  def handle_info({:http, _, {:http_header, _, :Range, _, range}},
-                  state = %CR{action: {:recv_header, hs}}) do
-    range_start = case range do
-      "bytes=" <> rest ->
-        {start, "-"} = Integer.parse(rest)
-        start
+  def handle_info({:http, _, :http_eoh},
+                  state = %CR{action: :recv_header, request: {:POST, {arch, hn}}}) do
+    :ok = :inet.setopts(state.sock, packet: :raw)
+    new_state = %{state | headers: extract_headers(state.header_fields)}
+    if new_state.headers.continue do
+      :ok = :gen_tcp.send(state.sock, header_from_code(100))
     end
-    {:noreply, %{state | action: {:recv_header, %{hs | range_start: range_start}}}}
+    content_length = new_state.headers.content_length
+    content = cond do
+      content_length > 0 ->
+        {:ok, content} = :gen_tcp.recv(new_state.sock, content_length, 500)
+        content
+      content_length == 0 ->
+        ""
+    end
+    credentials = {Map.get(new_state.headers, :hmac), Map.get(new_state.headers, :timestamp)}
+    authorization_status = case credentials do
+      {nil, _} -> {:error, :hmac_missing}
+      {_, nil} -> {:error, :timestamp_missing}
+      {hmac, timestamp} -> authorize({hmac, timestamp}, content)
+    end
+    case authorization_status do
+      {:error, reason} ->
+        _ = Logger.warn "Authorization failed: #{reason}"
+        :ok = :gen_tcp.send(new_state.sock, header_from_code(403))
+        :ok = :gen_tcp.close(new_state.sock)
+      :ok ->
+        _ = Logger.debug "Authorization succeeded."
+        :ok = :gen_tcp.send(new_state.sock, header_from_code(200))
+        :ok = :gen_tcp.close(new_state.sock)
+        _ = Logger.debug "Write file for host #{hn}"
+        cache_dir = Cpc.Utils.cache_dir_from_arch(new_state.arch)
+        path = Path.join([cache_dir, "wanted_packages", arch])
+        case File.mkdir_p(path) do
+          :ok -> :ok
+          {:error, :eexist} -> :ok
+        end
+        {:ok, file} = File.open(Path.join(path, hn), [:write])
+        :ok = IO.write file, content
+        :ok = File.close(file)
+    end
+    {:stop, :normal, new_state}
   end
 
-  def handle_info({:http, _, :http_eoh}, state = %CR{action: {:recv_header, hs}}) do
-    Logger.debug "Received end of header."
-    complete_file_requested = hs.range_start == nil
-    case get_filename(hs.uri, state.arch) do
+  def handle_info({:http, _, :http_eoh}, state = %CR{action: :recv_header, request: {:GET, uri}}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    _ = Logger.debug "Received end of header."
+    new_state = %{state | headers: extract_headers(state.header_fields)}
+    complete_file_requested = new_state.headers.range_start == nil
+    case get_filename(uri, new_state.arch) do
       {:database, db_url} ->
-        serve_db_via_redirect(db_url, state)
+        serve_db_via_redirect(db_url, new_state)
       {:complete_file, filename} ->
-        serve_via_cache(filename, state, hs.range_start)
+        serve_via_cache(filename, new_state, new_state.headers.range_start)
       {:partial_file, filename} ->
-        serve_via_partial_file(state, filename, hs)
+        serve_via_partial_file(new_state, filename, uri)
       {:not_found, filename} when not complete_file_requested ->
         # No caching is used when the client requested only a part of the file that is not cached.
         # Caching would be relatively complex in this case: We would need to serve the HTTP request
@@ -377,116 +432,43 @@ defmodule Cpc.ClientRequest do
         # first byte of the complete file.
         _ = Logger.warn "Content range requested, but file is not cached: #{inspect filename}. " <>
                         "Serve request via redirect."
-        serve_package_via_redirect(state, hs)
+        serve_package_via_redirect(new_state, uri)
       {:not_found, filename} ->
-        send state.serializer, {self(), :state?, filename}
+        send new_state.serializer, {self(), :state?, filename}
         receive do
           :downloading ->
-            Logger.debug "Status of file is: :downloading"
-            serve_via_growing_file(filename, state, hs.range_start)
+            _ = Logger.debug "Status of file is: :downloading"
+            serve_via_growing_file(filename, new_state)
           :unknown ->
-            Logger.debug "Status of file is: :unknown"
-            serve_via_http(filename, state, hs)
+            _ = Logger.debug "Status of file is: :unknown"
+            serve_via_http(filename, new_state, uri)
         end
     end
   end
 
   def handle_info({:http, _, {:http_request, :POST, {:abs_path, "/" <> path}, _}},
-                  state = %CR{action: {:recv_header, _}}) do
+                  state = %CR{action: :recv_header}) do
+    :ok = :inet.setopts(state.sock, active: :once)
     [arch, hn] = String.split(path, "/")
-    Logger.debug "Received POST request for architecture #{arch}, hostname #{hn}"
-    :ok = :inet.setopts(state.sock, active: :once)
-    {:noreply, %{state | action: {:recv_post_header, {arch, hn}}}}
+    _ = Logger.debug "Received POST request for architecture #{arch}, hostname #{hn}"
+    {:noreply, %{state | request: {:POST, {arch, hn}}}}
   end
 
-  def handle_info({:http, _, {:http_header, _, :"Content-Length", _, value}},
-                  state = %CR{action: {:recv_post_header, {arch, hn}}}) do
+  def handle_info({:http, _, header_field = {:http_header, _, _, _, _}},
+                  state = %CR{header_fields: hf}) do
     :ok = :inet.setopts(state.sock, active: :once)
-    Logger.debug "Set Content-Length to #{value}"
-    action = {:recv_package_names, {arch, hn, String.to_integer(value)}}
-    {:noreply, %{state | action: action}}
+    {:noreply, %{state | header_fields: [header_field|hf]}}
   end
 
-  def handle_info({:http, _, {:http_header, _, "Expect", _, "100-continue"}},
-                  state = %CR{action: {:recv_package_names, _}}) do
-    _ = Logger.debug "Client expects 100: Continue."
-    :ok = :inet.setopts(state.sock, active: :once)
-    :ok = :gen_tcp.send(state.sock, header_from_code(100))
-    {:noreply, state}
-  end
-
-  def handle_info({:http, sock, :http_eoh},
-                  state = %CR{action: {:recv_package_names, {arch, hn, cl}}}) do
-    :ok = :inet.setopts(sock, packet: :raw)
-    content = cond do
-      cl > 0 ->
-        {:ok, content} = :gen_tcp.recv(sock, cl, 500)
-        content
-      cl == 0 ->
-        ""
-    end
-    # TODO handle authorization, act accordingly if it failed.
-    :ok = authorize(state.auth, content)
-    :ok = :gen_tcp.send(sock, header_from_code(200))
-    :ok = :gen_tcp.close(sock)
-    _ = Logger.debug "Write file for host #{hn}"
-    cache_dir = Cpc.Utils.cache_dir_from_arch(state.arch)
-    path = Path.join([cache_dir, "wanted_packages", arch])
-    case File.mkdir_p(path) do
-      :ok -> :ok
-      {:error, :eexist} -> :ok
-    end
-    {:ok, file} = File.open(Path.join(path, hn), [:write])
-    :ok = IO.write file, content
-    :ok = File.close(file)
-    {:stop, :normal, nil}
-  end
 
   def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
     # TODO this message is sometimes logged even though the transfer has completed.
-    Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+    _ = Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
     {:stop, :normal, nil}
   end
 
-  def handle_info({:http, _sock, {:http_header, _, :Authorization, _, hmac}},
-                  state = %CR{action: {:recv_post_header, _}}) do
-    :ok = :inet.setopts(state.sock, active: :once)
-    _ = Logger.debug "Received hmac: #{inspect hmac}"
-    new_auth = case state.auth do
-                 {nil, timestamp} -> {hmac, timestamp}
-               end
-    {:noreply, %{state | auth: new_auth}}
-  end
-
-  def handle_info({:http, _sock,  {:http_header, 0, "Timestamp", _, timestamp}},
-                  state = %CR{action: {:recv_post_header, _}}) do
-    :ok = :inet.setopts(state.sock, active: :once)
-    _ = Logger.debug "Received timestamp: #{inspect timestamp}"
-    new_auth = case state.auth do
-                 {hmac, nil} -> {hmac, String.to_integer(timestamp)}
-               end
-    {:noreply, %{state | auth: new_auth}}
-  end
-
-  def handle_info({:http, _sock, http_packet}, state = %CR{action: {:recv_post_header, _}}) do
-    :ok = :inet.setopts(state.sock, active: :once)
-    _ = Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
-    {:noreply, state}
-  end
-
-  def handle_info({:http, _sock, http_packet}, state = %CR{action: {:recv_package_names, _}}) do
-    :ok = :inet.setopts(state.sock, active: :once)
-    _ = Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
-    {:noreply, state}
-  end
-
-  def handle_info({:http, _sock, http_packet}, state) do
-    Logger.debug "Ignored: #{inspect http_packet} in state: #{inspect state}"
-    {:noreply, state}
-  end
-
   def handle_info({:tcp_closed, _sock}, _state) do
-    Logger.debug "Socket closed by client."
+    _ = Logger.debug "Socket closed by client."
     {:stop, :normal, nil}
   end
 
@@ -506,30 +488,30 @@ defmodule Cpc.ClientRequest do
               state = %CR{action: {:filewatch, {f, n2}, content_length, size}}) when n1 == n2 do
     ^new_size = content_length
     finalize_download_from_growing_file(state, f, n2, size, content_length)
-    {:noreply, %{state | action: {:recv_header, %{uri: nil, range_start: nil}}}}
+    {:noreply, %{state | action: :recv_header}}
   end
 
   def handle_cast({:file_complete, {_filename, _prev_size, _new_size}}, state) do
     # Save to ignore: sometimes we catch the file completion via ibrowse_async_response_end, but the
     # timer still informs us that the file has completed.
-    Logger.debug "Ignore file completion."
+    _ = Logger.debug "Ignore file completion."
     {:noreply, state}
   end
 
   def handle_cast({:filesize_increased, {_filename, _prev_size, _new_size}}, state) do
     # Can be ignored for the same reasons as :file_complete:
     # timer still informs us that the file has completed.
-    Logger.debug "Ignore file size increase."
+    _ = Logger.debug "Ignore file size increase."
     {:noreply, state}
   end
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
-    Logger.debug "Download from growing file complete."
+    _ = Logger.debug "Download from growing file complete."
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
-    Logger.debug "Sendfile has completed."
+    _ = Logger.debug "Sendfile has completed."
     :ok = File.close(f)
     :ok = GenServer.cast(state.serializer, {:download_ended, n, self()})
-    Logger.debug "File is closed."
+    _ = Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
     :ok = GenServer.cast(state.purger, :purge)
   end
@@ -538,7 +520,7 @@ defmodule Cpc.ClientRequest do
     :ok
   end
   def terminate(status, state = %CR{sock: sock, sent_header: sent_header}) do
-    Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
+    _ = Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
     if !sent_header do
         _ = :gen_tcp.send(sock, header_from_code(500))
     end
