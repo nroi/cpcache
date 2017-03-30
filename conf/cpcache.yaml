@@ -11,7 +11,7 @@ x86:
 
 # If you're using Arch Linux ARM, uncomment the following.
 # arm:
-#     url: "http://de3.mirror.archlinuxarm.org"
+#     url: "http://mirror.archlinuxarm.org/"
 #     port: 7080
 #     cache_directory: "/var/cache/cpcache/arm"
 
