@@ -7,7 +7,9 @@ defmodule Cpc.Downloader do
             save_to: nil,
             start_from: nil,
             receiver: nil,
-            req_id: nil
+            req_id: nil,
+            status: :unknown
+
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
@@ -25,14 +27,19 @@ defmodule Cpc.Downloader do
     {:ok, {url, save_to, receiver, start_from}}
   end
 
-  def handle_info(:init, {url, save_to, receiver, start_from}) do
+  def init_get_request(url, save_to, start_from) do
     headers = case start_from do
-      nil -> []
-      0 -> []
-      rs -> [{"Range", "bytes=#{rs}-"}]
-    end
+                nil -> []
+                0 -> []
+                rs -> [{"Range", "bytes=#{rs}-"}]
+              end
     opts = [save_response_to_file: {:append, save_to}, stream_to: {self(), :once}]
     {:ibrowse_req_id, req_id} = :ibrowse.send_req(url, headers, :get, [], opts, :infinity)
+    req_id
+  end
+
+  def handle_info(:init, {url, save_to, receiver, start_from}) do
+    req_id = init_get_request(url, save_to, start_from)
     state = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
@@ -58,7 +65,7 @@ defmodule Cpc.Downloader do
       :mnesia.write({ContentLength, path, content_length})
     end)
     :ok = :ibrowse.stream_next(req_id)
-    {:noreply, state}
+    {:noreply, %{state | status: :ok}}
   end
 
   # When content-ranges are used, the server replies with the length of the partial file. However,
@@ -75,7 +82,26 @@ defmodule Cpc.Downloader do
       :mnesia.write({ContentLength, path, full_content_length})
     end)
     :ok = :ibrowse.stream_next(req_id)
+    {:noreply, %{state | status: :ok}}
+  end
+
+  def handle_info({:ibrowse_async_headers, req_id, '302', headers}, state = %Dload{}) do
+    :ok = :ibrowse.stream_next(req_id)
+    headers = Utils.headers_to_lower(headers)
+    location = to_charlist(:proplists.get_value("location", headers))
+    _ = Logger.debug "Redirected to location #{location}"
+    {:noreply, %{state | url: location, req_id: req_id, status: {:redirect, location}}}
+  end
+
+  def handle_info({:ibrowse_async_response, _req_id, []}, state = %Dload{status: {:redirect, _}}) do
     {:noreply, state}
+  end
+
+  def handle_info({:ibrowse_async_response_end, req_id},
+                  state = %Dload{status: {:redirect, location}}) do
+    :ok = :ibrowse.stream_close(req_id)
+    req_id = init_get_request(location, state.save_to, state.start_from)
+    {:noreply, %{state | status: :unknown, req_id: req_id}}
   end
 
   def handle_info({:ibrowse_async_response, req_id, {:file, _}}, state) do
@@ -85,10 +111,15 @@ defmodule Cpc.Downloader do
     {:noreply, state}
   end
 
-  def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{}) do
+  def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :ok}) do
     :ok = :ibrowse.stream_close(req_id)
     Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
     {:stop, :normal, state}
+  end
+
+  def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :redirect}) do
+    :ok = :ibrowse.stream_close(req_id)
+    {:noreply, state}
   end
 
   def terminate(status, %Dload{req_id: req_id}) do
