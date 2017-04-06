@@ -8,11 +8,33 @@ defmodule Cpc.Downloader do
             start_from: nil,
             receiver: nil,
             req_id: nil,
+            content_length: nil,
+            start_time: nil,
             status: :unknown
+
 
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
+
+  def bandwidth_to_human_readable(bytes, microseconds) do
+    bytes_per_second = bytes / (microseconds / 1000000)
+    exponent = :erlang.trunc(:math.log2(bytes_per_second) / :math.log2(1024))
+    prefix = case exponent do
+               0 -> ""
+               1 -> "Ki"
+               2 -> "Mi"
+               3 -> "Gi"
+               4 -> "Ti"
+               5 -> "Pi"
+               6 -> "Ei"
+               7 -> "Zi"
+               8 -> "Yi"
+             end
+    quantity = Float.round(bytes_per_second / :math.pow(1024, exponent), 2)
+    unit = "#{prefix}B/s"
+    "#{quantity} #{unit}"
+  end
 
   def start_link(url, save_to, receiver, start_from \\ nil) do
     GenServer.start_link(__MODULE__, {to_charlist(url),
@@ -58,6 +80,7 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_headers, req_id, '200', headers}, state = %Dload{}) do
     headers = Utils.headers_to_lower(headers)
     content_length = :proplists.get_value("content-length", headers) |> String.to_integer
+    Logger.debug "Content-length: #{content_length}"
     send state.receiver, {:content_length, content_length}
     path = url_without_host(state.url)
     Logger.debug "Write content length #{content_length} for path #{path} to cache."
@@ -65,13 +88,18 @@ defmodule Cpc.Downloader do
       :mnesia.write({ContentLength, path, content_length})
     end)
     :ok = :ibrowse.stream_next(req_id)
-    {:noreply, %{state | status: :ok}}
+    {:noreply, %{state |
+                 content_length: content_length,
+                 start_time: :erlang.timestamp(),
+                 status: :ok}}
   end
 
   # When content-ranges are used, the server replies with the length of the partial file. However,
   # we need to return the content length of the entire file to the client.
   def handle_info({:ibrowse_async_headers, req_id, '206', headers}, state = %Dload{}) do
     headers = Utils.headers_to_lower(headers)
+    content_length = :proplists.get_value("content-length", headers) |> String.to_integer
+    Logger.debug "Content-length: #{content_length}"
     header_line = :proplists.get_value("content-range", headers)
     [_, full_length] = String.split(header_line, "/")
     full_content_length = String.to_integer(full_length)
@@ -82,7 +110,10 @@ defmodule Cpc.Downloader do
       :mnesia.write({ContentLength, path, full_content_length})
     end)
     :ok = :ibrowse.stream_next(req_id)
-    {:noreply, %{state | status: :ok}}
+    {:noreply, %{state |
+                 content_length: content_length,
+                 start_time: :erlang.timestamp(),
+                 status: :ok}}
   end
 
   def handle_info({:ibrowse_async_headers, req_id, '302', headers}, state = %Dload{}) do
@@ -113,7 +144,11 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :ok}) do
     :ok = :ibrowse.stream_close(req_id)
-    Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
+    diff = :timer.now_diff(:erlang.timestamp(), state.start_time)
+    _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
+    speed = bandwidth_to_human_readable(state.content_length, diff)
+    secs = Float.round(diff / 1000000, 2)
+    _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
     {:stop, :normal, state}
   end
 
