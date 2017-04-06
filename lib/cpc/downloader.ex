@@ -61,13 +61,14 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info(:init, {url, save_to, receiver, start_from}) do
+    start_time = :erlang.timestamp()
     req_id = init_get_request(url, save_to, start_from)
     state = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
                    receiver: receiver,
                    req_id: req_id}
-    {:noreply, state}
+    {:noreply, %{state | start_time: start_time}}
   end
 
   def handle_info({:ibrowse_async_headers, req_id, '404', _}, state = %Dload{}) do
@@ -90,7 +91,6 @@ defmodule Cpc.Downloader do
     :ok = :ibrowse.stream_next(req_id)
     {:noreply, %{state |
                  content_length: content_length,
-                 start_time: :erlang.timestamp(),
                  status: :ok}}
   end
 
@@ -112,7 +112,6 @@ defmodule Cpc.Downloader do
     :ok = :ibrowse.stream_next(req_id)
     {:noreply, %{state |
                  content_length: content_length,
-                 start_time: :erlang.timestamp(),
                  status: :ok}}
   end
 
@@ -131,8 +130,9 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{status: {:redirect, location}}) do
     :ok = :ibrowse.stream_close(req_id)
+    start_time = :erlang.timestamp()
     req_id = init_get_request(location, state.save_to, state.start_from)
-    {:noreply, %{state | status: :unknown, req_id: req_id}}
+    {:noreply, %{state | status: :unknown, req_id: req_id, start_time: start_time}}
   end
 
   def handle_info({:ibrowse_async_response, req_id, {:file, _}}, state) do
@@ -151,7 +151,6 @@ defmodule Cpc.Downloader do
     secs = Float.round(diff / 1000000, 2)
     _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
     host = URI.parse(to_string(state.url)).host
-    _ = Logger.debug "Write in mnesia db with host: #{inspect host}"
     {:atomic, :ok} = :mnesia.transaction(fn ->
       :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, now})
     end)
