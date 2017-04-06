@@ -23,7 +23,7 @@ defmodule Cpc do
 
   def init_mnesia() do
     if not Enum.member?(:mnesia.system_info(:tables), ContentLength) do
-      _ = Logger.info "Mnesia table does not exist, will create it."
+      _ = Logger.info "Table ContentLength does not exist, will create it."
       :stopped = :mnesia.stop()
       case :mnesia.create_schema([node()]) do
         :ok ->
@@ -37,6 +37,27 @@ defmodule Cpc do
         {:atomic, :ok} ->
           _ = Logger.debug "Successfully created Mnesia table."
         {:aborted, {:already_exists, ContentLength}} ->
+          _ = Logger.debug "Mnesia table already exists."
+      end
+    end
+    if not Enum.member?(:mnesia.system_info(:tables), DownloadSpeed) do
+      _ = Logger.info "Mnesia table does not exist, will create it."
+      :stopped = :mnesia.stop()
+      case :mnesia.create_schema([node()]) do
+        :ok ->
+          _ = Logger.debug "Successfully created schema for mnesia."
+        {:error, {_, {:already_exists, _}}} ->
+          _ = Logger.debug "Mnesia schema already exists."
+      end
+      :ok = :mnesia.start()
+      options = [attributes: [:url, :content_length, :start_time, :end_time],
+                 disc_copies: [node()],
+                 type: :bag
+                ]
+      case :mnesia.create_table(DownloadSpeed, options) do
+        {:atomic, :ok} ->
+          _ = Logger.debug "Successfully created Mnesia table."
+        {:aborted, {:already_exists, DownloadSpeed}} ->
           _ = Logger.debug "Mnesia table already exists."
       end
     end

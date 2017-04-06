@@ -144,11 +144,17 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :ok}) do
     :ok = :ibrowse.stream_close(req_id)
-    diff = :timer.now_diff(:erlang.timestamp(), state.start_time)
+    now = :erlang.timestamp()
+    diff = :timer.now_diff(now, state.start_time)
     _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
     speed = bandwidth_to_human_readable(state.content_length, diff)
     secs = Float.round(diff / 1000000, 2)
     _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
+    host = URI.parse(to_string(state.url)).host
+    _ = Logger.debug "Write in mnesia db with host: #{inspect host}"
+    {:atomic, :ok} = :mnesia.transaction(fn ->
+      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, now})
+    end)
     {:stop, :normal, state}
   end
 
