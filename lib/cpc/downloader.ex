@@ -21,7 +21,6 @@ defmodule Cpc.Downloader do
     bytes_per_second = bytes / (microseconds / 1000000)
     exponent = :erlang.trunc(:math.log2(bytes_per_second) / :math.log2(1024))
     prefix = case exponent do
-               0 -> ""
                1 -> "Ki"
                2 -> "Mi"
                3 -> "Gi"
@@ -30,10 +29,21 @@ defmodule Cpc.Downloader do
                6 -> "Ei"
                7 -> "Zi"
                8 -> "Yi"
+               _ -> ""
              end
     quantity = Float.round(bytes_per_second / :math.pow(1024, exponent), 2)
     unit = "#{prefix}B/s"
     "#{quantity} #{unit}"
+  end
+
+  # Returns the download stats from the previous duration_seconds seconds.
+  def stats_from(duration_seconds) do
+    microsecs = :erlang.system_time(:micro_seconds) - duration_seconds * 1000000
+    head = {DownloadSpeed, "repo.helios.click", :"$1", :"$2", :"$3"}
+    {:atomic, data} = :mnesia.transaction(fn ->
+      :mnesia.select(DownloadSpeed, [{head, [{:>, :"$2", microsecs}], [:"$$"]}])
+    end)
+    data
   end
 
   def start_link(url, save_to, receiver, start_from \\ nil) do
@@ -61,7 +71,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_info(:init, {url, save_to, receiver, start_from}) do
-    start_time = :erlang.timestamp()
+    start_time = :erlang.system_time(:micro_seconds)
     req_id = init_get_request(url, save_to, start_from)
     state = %Dload{url: url,
                    save_to: save_to,
@@ -130,7 +140,7 @@ defmodule Cpc.Downloader do
   def handle_info({:ibrowse_async_response_end, req_id},
                   state = %Dload{status: {:redirect, location}}) do
     :ok = :ibrowse.stream_close(req_id)
-    start_time = :erlang.timestamp()
+    start_time = :erlang.system_time(:micro_seconds)
     req_id = init_get_request(location, state.save_to, state.start_from)
     {:noreply, %{state | status: :unknown, req_id: req_id, start_time: start_time}}
   end
@@ -144,15 +154,15 @@ defmodule Cpc.Downloader do
 
   def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :ok}) do
     :ok = :ibrowse.stream_close(req_id)
-    now = :erlang.timestamp()
-    diff = :timer.now_diff(now, state.start_time)
+    now = :erlang.system_time(:micro_seconds)
+    diff = now - state.start_time
     _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
     speed = bandwidth_to_human_readable(state.content_length, diff)
     secs = Float.round(diff / 1000000, 2)
     _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
     host = URI.parse(to_string(state.url)).host
     {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, now})
+      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, diff})
     end)
     {:stop, :normal, state}
   end

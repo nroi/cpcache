@@ -50,7 +50,7 @@ defmodule Cpc do
           _ = Logger.debug "Mnesia schema already exists."
       end
       :ok = :mnesia.start()
-      options = [attributes: [:url, :content_length, :start_time, :end_time],
+      options = [attributes: [:url, :content_length, :start_time, :diff_time],
                  disc_copies: [node()],
                  type: :bag
                 ]
