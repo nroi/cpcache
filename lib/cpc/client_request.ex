@@ -242,13 +242,13 @@ defmodule Cpc.ClientRequest do
 
   defp serve_package_via_redirect(state, uri) do
     url = mirror_uri(uri, state.arch)
-    _ = Logger.info "Serve package via http redirect from #{url}."
+    _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
   end
 
   defp serve_db_via_redirect(db_url, state) do
-    _ = Logger.info "Serve database file #{db_url} via http redirect."
+    _ = Logger.info "Serve database file #{db_url} via HTTP redirect."
     :ok = :gen_tcp.send(state.sock, header_301(db_url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
   end
