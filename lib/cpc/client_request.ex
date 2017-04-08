@@ -55,8 +55,15 @@ defmodule Cpc.ClientRequest do
           {:error, :enoent} -> {false, false}
           {:ok, %File.Stat{size: size}} ->
             case content_length(uri, arch) do
-              ^size ->             {true, true}
-              cl when cl > size -> {true, false}
+              {:ok, ^size} ->             {true, true}
+              {:ok, cl} when cl > size -> {true, false}
+              {:error, :not_found} ->
+                # The file exists, but we cannot retrieve its content length: This can happen if
+                # the remote server doesn't have this file anymore (i.e., the file is outdated)
+                # and its content-length is not saved in the database for some reason.
+                # In this case, we want to reply 404, rather than sending a
+                # possibly incomplete file.
+                {false, false}
             end
         end
     end
@@ -198,18 +205,21 @@ defmodule Cpc.ClientRequest do
     case result do
       {:ok, content_length} ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} from cache."
-        content_length
+        {:ok, content_length}
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
         uri = mirror_uri(req_uri, arch)
         headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
-          {:ok, {{_, 200, 'OK'}, headers, _}} -> Utils.headers_to_lower(headers)
+                    {:ok, {{_, 200, _}, headers, _}} -> {:ok, Utils.headers_to_lower(headers)}
+                    {:ok, {{_, 404, _}, _headers, _}} -> {:error, :not_found}
         end
-        content_length = :proplists.get_value("content-length", headers) |> String.to_integer
-        {:atomic, :ok} = :mnesia.transaction(fn ->
-          :mnesia.write({ContentLength, req_uri, content_length})
-        end)
-        content_length
+        with {:ok, headers} <- headers do
+          content_length = :proplists.get_value("content-length", headers) |> String.to_integer
+          {:atomic, :ok} = :mnesia.transaction(fn ->
+            :mnesia.write({ContentLength, req_uri, content_length})
+          end)
+          {:ok, content_length}
+        end
     end
   end
 
@@ -276,7 +286,7 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_growing_file(filename, state) do
     %CR{request: {:GET, uri}} = state
-    full_content_length = content_length(uri, state.arch)
+    {:ok, full_content_length} = content_length(uri, state.arch)
     {:ok, _} = Filewatcher.start_link(self(), filename, full_content_length)
     _ = Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
@@ -316,17 +326,17 @@ defmodule Cpc.ClientRequest do
     _ = Logger.debug "Start HTTP download from byte #{start_http_from_byte}"
     range_start = state.headers.range_start
     case content_length(uri, state.arch) do
-      cl when cl == filesize ->
+      {:ok, cl} when cl == filesize ->
         _ = Logger.warn "The entire file has already been downloaded by the server."
         serve_via_cache(filename, state, range_start)
-      cl when cl == range_start ->
+      {:ok, cl} when cl == range_start ->
         # The client requested a content range, although he already has the entire file.
         reply_header = header(cl, range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
-      _ ->
+      {:ok, _ }->
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, uri)
         Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
@@ -350,6 +360,11 @@ defmodule Cpc.ClientRequest do
             _ = Logger.debug "Sent header: #{reply_header}"
             {:noreply, %{state | sent_header: true, action: :recv_header}}
         end
+      {:error, :not_found} ->
+        reply_header = header_from_code(404)
+        :ok = :gen_tcp.send(state.sock, reply_header)
+        _ = Logger.debug "Sent header: #{reply_header}"
+        {:noreply, %{state | sent_header: true, action: :recv_header}}
     end
   end
 
