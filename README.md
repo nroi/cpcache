@@ -3,6 +3,9 @@
 cpcache is a central cache for pacman, the package manager of Arch Linux. It requires little
 configuration, does not bother you with 404 errors and it allows you to utilize the full bandwidth
 even as multiple clients download the same file at the same time.
+Combined with [clyde](https://github.com/nroi/clyde-server), it also allows you to download updated
+packages in advance so that most requests can be served from cache when running `pacman -Syu`.
+
 
 ## How it works
 
@@ -54,10 +57,6 @@ let's compare cpcache with each of them.
 In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
 will cause timeouts in pacman since downloads then requires a few seconds to start. Use
 `proxy_buffering off;` to prevent this.
-
-## Download updated packages in advance
-Check out [clyde](https://github.com/nroi/clyde) if you want to download packages regularly so that most
-requests can be served from cache.
 
 ## Dependencies
 Apart from Elixir and Erlang, cpcache requires
