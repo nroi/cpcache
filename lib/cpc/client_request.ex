@@ -81,7 +81,7 @@ defmodule Cpc.ClientRequest do
 
   defp key_from_config() do
     case :ets.lookup(:cpc_config, :recv_packages) do
-      [recv_packages: %{"shared_key" => sk}] -> {:ok, sk}
+      [recv_packages: %{"key" => sk}] -> {:ok, sk}
       _                                      -> {:error, :key_not_found}
     end
   end

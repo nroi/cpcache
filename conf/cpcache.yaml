@@ -19,3 +19,8 @@ x86:
 # versions should be kept in the cache before purging.
 # Set this to 0 to disable this behavior.
 keep: 3
+
+# Uncomment if you want to regularly send a list containing all currently
+# installed packages from all clients which have clyde-client installed.
+# recv_packages:
+#    key: "top_secret"
