@@ -1,4 +1,5 @@
 defmodule Cpc.ClientRequest do
+  @max_body_size 500000
   alias Cpc.ClientRequest, as: CR
   alias Cpc.Filewatcher
   alias Cpc.Utils
@@ -82,7 +83,7 @@ defmodule Cpc.ClientRequest do
   defp key_from_config() do
     case :ets.lookup(:cpc_config, :recv_packages) do
       [recv_packages: %{"key" => sk}] -> {:ok, sk}
-      _                                      -> {:error, :key_not_found}
+      _ -> {:error, :key_not_found}
     end
   end
 
@@ -172,6 +173,7 @@ defmodule Cpc.ClientRequest do
   defp header_from_code(200), do: default_header("200 OK")
   defp header_from_code(403), do: default_header("403 Forbidden")
   defp header_from_code(404), do: default_header("404 Not Found")
+  defp header_from_code(413), do: default_header("413 Payload Too Large")
   defp header_from_code(500), do: default_header("500 Internal Server Error")
 
   defp header_301(location) do
@@ -399,19 +401,27 @@ defmodule Cpc.ClientRequest do
     end
     content_length = new_state.headers.content_length
     content = cond do
+      content_length > @max_body_size ->
+        {:error, :body_too_large}
       content_length > 0 ->
         {:ok, content} = :gen_tcp.recv(new_state.sock, content_length, 500)
-        content
+        {:ok, content}
       content_length == 0 ->
-        ""
+        {:ok, ""}
     end
     credentials = {Map.get(new_state.headers, :hmac), Map.get(new_state.headers, :timestamp)}
-    authorization_status = case credentials do
-      {nil, _} -> {:error, :hmac_missing}
-      {_, nil} -> {:error, :timestamp_missing}
-      {hmac, timestamp} -> authorize({hmac, timestamp}, content)
+    authorization_status = with {:ok, content} <- content do
+      case credentials do
+        {nil, _} -> {:error, :hmac_missing}
+        {_, nil} -> {:error, :timestamp_missing}
+        {hmac, timestamp} -> authorize({hmac, timestamp}, content)
+      end
     end
     case authorization_status do
+      {:error, :body_too_large} ->
+        _ = Logger.warn "Body exceeded max size of #{@max_body_size}."
+        :ok = :gen_tcp.send(new_state.sock, header_from_code(413))
+        :ok = :gen_tcp.close(new_state.sock)
       {:error, reason} ->
         _ = Logger.warn "Authorization failed: #{reason}"
         :ok = :gen_tcp.send(new_state.sock, header_from_code(403))
