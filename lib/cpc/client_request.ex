@@ -15,18 +15,23 @@ defmodule Cpc.ClientRequest do
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
 
+
+
   def start_link(arch, sock) do
+    GenServer.start_link(__MODULE__, init_state(arch, sock))
+  end
+
+  defp init_state(arch, sock) do
     {serializer, purger} = case arch do
-      :x86 -> {:x86_serializer, :x86_purger}
-      :arm -> {:arm_serializer, :arm_purger}
-    end
-    state = %CR{sock: sock,
-      arch: arch,
-      serializer: serializer,
-      purger: purger,
-      sent_header: false,
-      action: :recv_header}
-    GenServer.start_link(__MODULE__, state)
+                             :x86 -> {:x86_serializer, :x86_purger}
+                             :arm -> {:arm_serializer, :arm_purger}
+                           end
+    %CR{sock: sock,
+        arch: arch,
+        serializer: serializer,
+        purger: purger,
+        sent_header: false,
+        action: :recv_header}
   end
 
   def init(state) do
@@ -366,7 +371,8 @@ defmodule Cpc.ClientRequest do
     uri = case path do
       "/" <> rest -> URI.decode(rest)
     end
-    {:noreply, %{state | request: {:GET, uri}}}
+    init_state = init_state(state.arch, state.sock)
+    {:noreply, %{init_state | request: {:GET, uri}}}
   end
 
   def handle_info({:http, _, :http_eoh},
@@ -451,7 +457,8 @@ defmodule Cpc.ClientRequest do
     :ok = :inet.setopts(state.sock, active: :once)
     [arch, hn] = String.split(path, "/")
     _ = Logger.debug "Received POST request for architecture #{arch}, hostname #{hn}"
-    {:noreply, %{state | request: {:POST, {arch, hn}}}}
+    init_state = init_state(state.arch, state.sock)
+    {:noreply, %{init_state | request: {:POST, {arch, hn}}}}
   end
 
   def handle_info({:http, _, header_field = {:http_header, _, _, _, _}},
