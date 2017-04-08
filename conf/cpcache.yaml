@@ -1,26 +1,24 @@
+cache_directory: "/var/cache/cpcache"
+
 x86:
     # Enter the URL of the mirror currently used in /etc/pacman.d/mirrorlist
     # here, WITHOUT trailing $repo/os/$arch.
-    url: "http://archlinux.polymorf.fr/"
+    url: "https://mirror.js-webcoding.de/pub/archlinux/"
     port: 7070
     # Note that cpcache relies on the directory structure that is created in
     # /var/cache/cpcache during install. If you change this setting, copy the
     # contents to the new directory and make sure user cpcache has read- and
     # write-access.
-    cache_directory: "/var/cache/cpcache/x86"
 
 # If you're using Arch Linux ARM, uncomment the following.
 # arm:
-#     url: "http://mirror.archlinuxarm.org/"
+#     url: "http://mirror.archlinuxarm.org"
 #     port: 7080
-#     cache_directory: "/var/cache/cpcache/arm"
 
 # cpcache will routinely purge old packages. This parameter specifies how many
 # versions should be kept in the cache before purging.
 # Set this to 0 to disable this behavior.
 keep: 3
 
-# Uncomment if you want to regularly send a list containing all currently
-# installed packages from all clients which have clyde-client installed.
-# recv_packages:
-#    key: "top_secret"
+recv_packages:
+    key: "topsecret"
