@@ -198,10 +198,10 @@ defmodule Cpc.ClientRequest do
   # via HTTP.
   def content_length(req_uri, arch) do
     db_result = :mnesia.transaction(fn ->
-      :mnesia.read({ContentLength, req_uri})
+      :mnesia.read({ContentLength, {arch, Path.basename(req_uri)}})
     end)
     result = case db_result do
-      {:atomic, [{ContentLength, ^req_uri, content_length}]} -> {:ok, content_length}
+      {:atomic, [{ContentLength, {^arch, _basename}, content_length}]} -> {:ok, content_length}
       {:atomic, []} -> :not_found
     end
     case result do
@@ -229,7 +229,7 @@ defmodule Cpc.ClientRequest do
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     url = mirror_uri(uri, state.arch)
-    Cpc.Downloader.start_link(url, filename, self(), 0)
+    Cpc.Downloader.start_link(url, filename, self(), state.arch, 0)
     receive do
       {:content_length, content_length} ->
         reply_header = header(content_length, state.headers.range_start)
@@ -342,7 +342,7 @@ defmodule Cpc.ClientRequest do
       {:ok, _ }->
         [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.arch)
         url = Path.join(mirror, uri)
-        Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
+        Cpc.Downloader.start_link(url, filename, self(), state.arch, start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])
