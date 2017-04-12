@@ -546,7 +546,7 @@ defmodule Cpc.ClientRequest do
     :ok = GenServer.cast(state.serializer, {:download_ended, n, self()})
     _ = Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
-    :ok = GenServer.cast(state.purger, :purge)
+    :ok = GenServer.cast(state.purger, {:purge, n})
   end
 
   def terminate(:normal, _state) do
