@@ -54,6 +54,7 @@ defmodule Cpc.Purger do
       File.ls!(dirname)
       |> Enum.map(&Path.join(dirname, &1))
       |> Enum.filter(&File.regular?/1)
+      |> Enum.filter(fn filename -> String.ends_with?(filename, ".tar.xz") end)
       |> Enum.map(fn filename ->
            case split_filename(filename) do
              {ppkgname, _, _} -> {filename, ppkgname}
