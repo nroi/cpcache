@@ -97,7 +97,6 @@ defmodule Cpc.Downloader do
     Logger.debug "Content-length: #{content_length}"
     send state.receiver, {:content_length, content_length}
     path = url_without_host(state.url)
-    Logger.debug "Write content length #{content_length} for path #{path} to cache."
     {:atomic, :ok} = :mnesia.transaction(fn ->
       :mnesia.write({ContentLength, {state.arch, Path.basename(path)}, content_length})
     end)
@@ -118,7 +117,6 @@ defmodule Cpc.Downloader do
     full_content_length = String.to_integer(full_length)
     send state.receiver, {:content_length, full_content_length}
     path = url_without_host(state.url)
-    Logger.debug "Write content length #{full_content_length} for path #{path} to cache."
     {:atomic, :ok} = :mnesia.transaction(fn ->
       :mnesia.write({ContentLength, path, full_content_length})
     end)
