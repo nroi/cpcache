@@ -14,7 +14,7 @@ defmodule Cpc.Mixfile do
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :ibrowse, :mnesia],
+    [applications: [:logger, :inets, :ssl, :ibrowse, :mnesia, :tomlex],
      mod: {Cpc, []}]
   end
 
