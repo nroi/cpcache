@@ -1,24 +1,16 @@
 defmodule Cpc do
   use Application
   require Logger
-  @config_path "/etc/cpcache/cpcache.yaml"
-
-  defp stringmap_to_atom(nil), do: nil
-  defp stringmap_to_atom(%{"port" => port, "url" => url}), do: %{port: port, url: url}
+  @config_path "/etc/cpcache/cpcache.toml"
 
   def init_config() do
-    config = YamlElixir.read_from_file(@config_path)
-    %{"keep" => keep} = config
-    %{"cache_directory" => cache_directory} = config
-    recv_packages = config["recv_packages"]
-    {arm_map, x86_map} = {Map.get(config, "arm"), Map.get(config, "x86")}
-    {arm, x86} = {stringmap_to_atom(arm_map), stringmap_to_atom(x86_map)}
+    config = Tomlex.load(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
-    :ets.insert(:cpc_config, {:keep, keep})
-    :ets.insert(:cpc_config, {:arm, arm})
-    :ets.insert(:cpc_config, {:x86, x86})
-    :ets.insert(:cpc_config, {:cache_directory, cache_directory})
-    :ets.insert(:cpc_config, {:recv_packages, recv_packages})
+    :ets.insert(:cpc_config, {:keep, config[:keep]})
+    :ets.insert(:cpc_config, {:arm, config[:arm]})
+    :ets.insert(:cpc_config, {:x86, config[:x86]})
+    :ets.insert(:cpc_config, {:cache_directory, config[:cache_directory]})
+    :ets.insert(:cpc_config, {:recv_packages, config[:recv_packages]})
   end
 
   def init_mnesia() do

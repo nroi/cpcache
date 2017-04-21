@@ -14,7 +14,7 @@ defmodule Cpc.Mixfile do
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :yaml_elixir, :ibrowse, :mnesia],
+    [applications: [:logger, :inets, :ssl, :ibrowse, :mnesia],
      mod: {Cpc, []}]
   end
 
@@ -30,7 +30,7 @@ defmodule Cpc.Mixfile do
   defp deps do
     [
       {:distillery, "~> 1.1"},
-      {:yaml_elixir, "~> 1.3"},
+      {:tomlex, "~> 0.0.5"},
       {:ibrowse, "~> 4.4"}
     ]
   end
