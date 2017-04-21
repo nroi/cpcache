@@ -160,21 +160,22 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
-  defp default_header(text) do
+  defp default_header(text, content_length) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 #{text}\r\n" <>
       "Server: cpcache\r\n" <>
       "Date: #{date}\r\n" <>
-      "Content-Length: 0\r\n" <>
+      "Content-Length: #{content_length}\r\n" <>
       "\r\n"
   end
 
-  defp header_from_code(100), do: default_header("100 Continue")
-  defp header_from_code(200), do: default_header("200 OK")
-  defp header_from_code(403), do: default_header("403 Forbidden")
-  defp header_from_code(404), do: default_header("404 Not Found")
-  defp header_from_code(413), do: default_header("413 Payload Too Large")
-  defp header_from_code(500), do: default_header("500 Internal Server Error")
+  defp header_from_code(code, content_length \\ 0)
+  defp header_from_code(100, cl), do: default_header("100 Continue", cl)
+  defp header_from_code(200, cl), do: default_header("200 OK", cl)
+  defp header_from_code(403, cl), do: default_header("403 Forbidden", cl)
+  defp header_from_code(404, cl), do: default_header("404 Not Found", cl)
+  defp header_from_code(413, cl), do: default_header("413 Payload Too Large", cl)
+  defp header_from_code(500, cl), do: default_header("500 Internal Server Error", cl)
 
   defp header_301(location) do
     date = to_string(:httpd_util.rfc1123_date)
@@ -381,6 +382,17 @@ defmodule Cpc.ClientRequest do
         _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
         serve_via_cache_and_http(state, filename, uri)
     end
+  end
+
+  def handle_info({:http, _, {:http_request, :GET, {:abs_path, "/"}, _}},
+                  state = %CR{action: :recv_header}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    text = "404 Not Found.\ncpcache does not support directory listing.\n"
+    reply_header = header_from_code(404, byte_size(text))
+    :ok = :gen_tcp.send(state.sock, reply_header)
+    :ok = :gen_tcp.send(state.sock, text)
+    :ok = :gen_tcp.close(state.sock)
+    {:stop, :normal, state}
   end
 
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
