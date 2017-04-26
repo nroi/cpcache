@@ -5,15 +5,15 @@ defmodule Cpc.Utils do
     end)
   end
 
-  def cache_dir_from_arch(darch) when darch == :x86 or darch == :arm do
+  def cache_dir_from_distro(distro) when distro == :x86 or distro == :arm do
     case :ets.lookup(:cpc_config, :cache_directory) do
       [{:cache_directory, cache_directory}] ->
-        Path.join(cache_directory, to_string darch)
+        Path.join(cache_directory, to_string distro)
     end
   end
 
-  def wanted_packages_dir(darch, arch) when darch == :x86 or darch == :arm do
-    cache_dir = cache_dir_from_arch(darch)
-    path = Path.join([cache_dir, "wanted_packages", arch])
+  def wanted_packages_dir(distro, arch) when distro == :x86 or distro == :arm do
+    cache_dir = cache_dir_from_distro(distro)
+    Path.join([cache_dir, "wanted_packages", arch])
   end
 end

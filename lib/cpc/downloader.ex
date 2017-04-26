@@ -7,7 +7,7 @@ defmodule Cpc.Downloader do
             save_to: nil,
             start_from: nil,
             receiver: nil,
-            arch: nil,
+            distro: nil,
             req_id: nil,
             content_length: nil,
             start_time: nil,
@@ -47,18 +47,18 @@ defmodule Cpc.Downloader do
     data
   end
 
-  def start_link(url, save_to, receiver, arch, start_from \\ nil) do
+  def start_link(url, save_to, receiver, distro, start_from \\ nil) do
     GenServer.start_link(__MODULE__, {to_charlist(url),
                                       to_charlist(save_to),
                                       receiver,
-                                      arch,
+                                      distro,
                                       start_from})
   end
 
-  def init({url, save_to, receiver, arch, start_from}) do
+  def init({url, save_to, receiver, distro, start_from}) do
     send self(), :init
     Process.flag(:trap_exit, true)
-    {:ok, {url, save_to, receiver, arch, start_from}}
+    {:ok, {url, save_to, receiver, distro, start_from}}
   end
 
   def init_get_request(url, save_to, start_from) do
@@ -72,14 +72,14 @@ defmodule Cpc.Downloader do
     req_id
   end
 
-  def handle_info(:init, {url, save_to, receiver, arch, start_from}) do
+  def handle_info(:init, {url, save_to, receiver, distro, start_from}) do
     start_time = :erlang.system_time(:micro_seconds)
     req_id = init_get_request(url, save_to, start_from)
     state = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
                    receiver: receiver,
-                   arch: arch,
+                   distro: distro,
                    req_id: req_id}
     {:noreply, %{state | start_time: start_time}}
   end
@@ -98,7 +98,7 @@ defmodule Cpc.Downloader do
     send state.receiver, {:content_length, content_length}
     path = url_without_host(state.url)
     {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({ContentLength, {state.arch, Path.basename(path)}, content_length})
+      :mnesia.write({ContentLength, {state.distro, Path.basename(path)}, content_length})
     end)
     :ok = :ibrowse.stream_next(req_id)
     {:noreply, %{state |
