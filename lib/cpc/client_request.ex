@@ -163,10 +163,10 @@ defmodule Cpc.ClientRequest do
   defp default_header(text, content_length) do
     date = to_string(:httpd_util.rfc1123_date)
     "HTTP/1.1 #{text}\r\n" <>
-      "Server: cpcache\r\n" <>
-      "Date: #{date}\r\n" <>
-      "Content-Length: #{content_length}\r\n" <>
-      "\r\n"
+    "Server: cpcache\r\n" <>
+    "Date: #{date}\r\n" <>
+    "Content-Length: #{content_length}\r\n" <>
+    "\r\n"
   end
 
   defp header_from_code(code, content_length \\ 0)
@@ -182,7 +182,6 @@ defmodule Cpc.ClientRequest do
     "HTTP/1.1 301 Moved Permanently\r\n" <>
     "Server: cpcache\r\n" <>
     "Date: #{date}\r\n" <>
-    "Content-Type: text/html\r\n" <>
     "Content-Length: 0\r\n" <>
     "Location: #{location}\r\n" <>
     "\r\n"
