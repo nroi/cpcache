@@ -444,8 +444,7 @@ defmodule Cpc.ClientRequest do
         :ok = :gen_tcp.send(new_state.sock, header_from_code(200))
         :ok = :gen_tcp.close(new_state.sock)
         _ = Logger.debug "Write file for host #{hn}"
-        cache_dir = Cpc.Utils.cache_dir_from_arch(new_state.arch)
-        path = Path.join([cache_dir, "wanted_packages", arch])
+        path = Cpc.Utils.wanted_packages_dir(new_state.arch, arch)
         case File.mkdir_p(path) do
           :ok -> :ok
           {:error, :eexist} -> :ok
