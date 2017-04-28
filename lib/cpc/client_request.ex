@@ -405,6 +405,15 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, state}
   end
 
+  def handle_info({:http, _, {:http_request, :GET, {:abs_path, "/favicon.ico"}, _}},
+    state = %CR{action: :recv_header}) do
+    :ok = :inet.setopts(state.sock, active: :once)
+    reply_header = header_from_code(404)
+    :ok = :gen_tcp.send(state.sock, reply_header)
+    :ok = :gen_tcp.close(state.sock)
+    {:stop, :normal, state}
+  end
+
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, path}, _}},
                   state = %CR{action: :recv_header}) do
     :ok = :inet.setopts(state.sock, active: :once)
