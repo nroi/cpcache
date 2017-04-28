@@ -188,9 +188,27 @@ defmodule Cpc.ClientRequest do
   end
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
-  def mirror_uri(uri, distro) do
-    [{_, %{mirrors: [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
+  def mirror_uri(uri, distro, round_robin) do
+    mirror = random_mirror(distro, round_robin)
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
+  end
+
+  # Returns the mirror for the given distro. round_robin should be set to true if
+  # a new mirror should be chosen afterwards.
+  def random_mirror(distro, round_robin) when distro == :x86 or distro == :arm do
+    index = case {round_robin, :ets.lookup(:cpc_round_robin, distro)} do
+              {true, [{^distro, {index, num_mirrors}}]} ->
+                new_idx = rem(index + 1, num_mirrors)
+                Logger.warn "insert new index: #{inspect new_idx}"
+                :ets.insert(:cpc_round_robin, {distro, {new_idx, num_mirrors}})
+                index
+              {false, [{^distro, {index, _}}]} -> index
+            end
+    case :ets.lookup(:cpc_config, distro) do
+      [{_, %{mirrors: mirrors}}] ->
+        :ets.lookup(:cpc_config, distro)
+        Enum.at(mirrors, index)
+    end
   end
 
   # Given the requested URI, fetch the full content-length from the server.
@@ -210,7 +228,7 @@ defmodule Cpc.ClientRequest do
         {:ok, content_length}
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        uri = mirror_uri(req_uri, distro)
+        uri = mirror_uri(req_uri, distro, false)
         headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
                     {:ok, {{_, 200, _}, headers, _}} -> {:ok, Utils.headers_to_lower(headers)}
                     {:ok, {{_, 404, _}, _headers, _}} -> {:error, :not_found}
@@ -228,7 +246,7 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(uri, state.distro)
+    url = mirror_uri(uri, state.distro, true)
     Cpc.Downloader.start_link(url, filename, self(), state.distro, 0)
     receive do
       {:content_length, content_length} ->
@@ -254,7 +272,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    url = mirror_uri(uri, state.distro)
+    url = mirror_uri(uri, state.distro, true)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -340,8 +358,7 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, state.distro)
-        url = Path.join(mirror, uri)
+        url = mirror_uri(uri, state.distro, true)
         Cpc.Downloader.start_link(url, filename, self(), state.distro, start_http_from_byte)
         receive do
           {:content_length, content_length} ->

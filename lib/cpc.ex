@@ -3,14 +3,27 @@ defmodule Cpc do
   require Logger
   @config_path "/etc/cpcache/cpcache.toml"
 
+  defp init_round_robin(config, distro) when distro == :x86 or distro == :arm do
+    case config[distro] do
+      nil -> :ok
+      dconfig ->
+        num_mirrors = Enum.count(dconfig[:mirrors])
+        random = Enum.random(0..num_mirrors - 1)
+        :ets.insert(:cpc_round_robin, {distro, {random, num_mirrors}})
+    end
+  end
+
   def init_config() do
     config = Tomlex.load(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
+    :ets.new(:cpc_round_robin, [:named_table, :public])
     :ets.insert(:cpc_config, {:keep, config[:keep]})
     :ets.insert(:cpc_config, {:arm, config[:arm]})
     :ets.insert(:cpc_config, {:x86, config[:x86]})
     :ets.insert(:cpc_config, {:cache_directory, config[:cache_directory]})
     :ets.insert(:cpc_config, {:recv_packages, config[:recv_packages]})
+    init_round_robin(config, :x86)
+    init_round_robin(config, :arm)
   end
 
   def init_mnesia() do
