@@ -44,7 +44,7 @@ defmodule Cpc.ClientRequest do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, to_string distro)
                 end
-    [{^distro, %{url: mirror}}] = :ets.lookup(:cpc_config, distro)
+    [{^distro, %{mirrors: [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -189,7 +189,7 @@ defmodule Cpc.ClientRequest do
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
   def mirror_uri(uri, distro) do
-    [{_, %{url: mirror}}] = :ets.lookup(:cpc_config, distro)
+    [{_, %{mirrors: [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
   end
 
