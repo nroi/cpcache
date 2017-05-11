@@ -22,6 +22,7 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:x86, config[:x86]})
     :ets.insert(:cpc_config, {:cache_directory, config[:cache_directory]})
     :ets.insert(:cpc_config, {:recv_packages, config[:recv_packages]})
+    :ets.insert(:cpc_config, {:ipv6_enabled, config[:ipv6_enabled]})
     init_round_robin(config, :x86)
     init_round_robin(config, :arm)
   end

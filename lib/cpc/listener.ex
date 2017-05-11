@@ -8,13 +8,21 @@ defmodule Cpc.Listener do
 
   def init(dist) when dist == :x86 or dist == :arm do
     [{^dist, ets_map}] = :ets.lookup(:cpc_config, dist)
+    [{:ipv6_enabled, ipv6_enabled}] = :ets.lookup(:cpc_config, :ipv6_enabled)
     %{port: port} = ets_map
-    {:ok, listening_sock} = :gen_tcp.listen(port, [:binary,
-                                                   active: false,
-                                                   reuseaddr: true,
-                                                   packet: :http_bin,
-                                                   send_timeout: 1000
-                                                 ])
+    standard_opts = [
+      :binary,
+      :inet6,
+      active: false,
+      reuseaddr: true,
+      packet: :http_bin,
+      send_timeout: 1000
+    ]
+    opts = case ipv6_enabled do
+      true -> [:inet6 | standard_opts]
+      false -> standard_opts
+    end
+    {:ok, listening_sock} = :gen_tcp.listen(port, opts)
     Logger.info "Listening on port #{port}"
     send self(), :init
     {:ok, {dist, listening_sock}}

@@ -1,5 +1,8 @@
 cache_directory = "/var/cache/cpcache"
 
+# Bind to an IPv6 address, in addition to an IPv4 address.
+ipv6_enabled = true
+
 # cpcache will routinely purge old packages. This parameter specifies how many
 # versions should be kept in the cache before purging.
 # Set to 0 to disable this behavior.
