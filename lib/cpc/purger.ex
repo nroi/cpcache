@@ -13,6 +13,7 @@ defmodule Cpc.Purger do
   end
 
   def handle_info(:purge_all, {cache_directory, keep}) do
+    _ = Logger.debug "Start purging #{cache_directory}."
     filenames = Path.wildcard("#{cache_directory}/**/*.tar.xz")
     pkgname2filenames = Enum.group_by(filenames, &pkgname/1)
     Enum.each(pkgname2filenames, fn {pkgname, filenames} ->
