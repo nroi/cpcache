@@ -1,7 +1,7 @@
 defmodule Cpc.Purger do
   use GenServer
   require Logger
-  @purge_wait 1000 * 3600
+  @purge_wait 1000 * 3600 * 12
 
   def start_link(cache_directory, keep, name) do
     GenServer.start_link(__MODULE__, {cache_directory, keep}, name: name)
