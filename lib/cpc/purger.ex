@@ -51,6 +51,7 @@ defmodule Cpc.Purger do
 
   # purges all older packages for all repositories (core, extra, community, …)
   def purge(pkgname, dirname, keep) do
+    _ = Logger.debug "Purge package #{pkgname} inside #{dirname}"
     deletion_candidates =
       File.ls!(dirname)
       |> Enum.map(&Path.join(dirname, &1))
@@ -98,6 +99,7 @@ defmodule Cpc.Purger do
     Enum.each(package_names, fn pkgname ->
         IO.write(file, pkgname <> "\n")
     end)
+    _  = Logger.debug "Run pacsort on file #{filename}"
     sorted = case System.cmd("/usr/bin/pacsort", ["--reverse", "-f", filename]) do
                {output, 0} -> String.split(output)
              end
