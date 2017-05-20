@@ -16,10 +16,18 @@ defmodule Cpc.Purger do
     _ = Logger.debug "Start purging #{cache_directory}."
     filenames = Path.wildcard("#{cache_directory}/**/*.tar.xz")
     pkgname2filenames = Enum.group_by(filenames, &pkgname/1)
+    dirnames = Enum.reduce(filenames, MapSet.new(), fn (filename, acc) ->
+      MapSet.put(acc, Path.dirname(filename))
+    end)
+    # Maps each directory to a list of {filename, pkgname} tuples.
+    dirname2pkgfiles =
+      dirnames
+      |> Enum.map(fn dirname -> {dirname, pkgfiles_from_directory(dirname)} end)
+      |> Map.new
     Enum.each(pkgname2filenames, fn {pkgname, filenames} ->
       dirname2filenames = Enum.group_by(filenames, &Path.dirname/1)
       Enum.each(dirname2filenames, fn {dirname, _filename} ->
-        purge(pkgname, dirname, keep)
+        purge(dirname2pkgfiles[dirname], pkgname, dirname, keep)
       end)
     end)
     {:ok, _} = :timer.send_after(@purge_wait, :purge_all)
@@ -28,8 +36,21 @@ defmodule Cpc.Purger do
 
   def handle_cast({:purge, filename}, {cache_directory, keep}) do
     dirname = Path.dirname(filename)
-    purge(pkgname(filename), dirname, keep)
+    purge(pkgfiles_from_directory(dirname), pkgname(filename), dirname, keep)
     {:noreply, {cache_directory, keep}}
+  end
+
+  # Given a directory name, return the {filename, pkgname} tuples.
+  def pkgfiles_from_directory(dirname) do
+    File.ls!(dirname)
+    |> Enum.map(&Path.join(dirname, &1))
+    |> Enum.filter(&File.regular?/1)
+    |> Enum.filter(fn filename -> String.ends_with?(filename, ".tar.xz") end)
+    |> Enum.map(fn filename ->
+         case split_filename(filename) do
+           {ppkgname, _, _} -> {filename, ppkgname}
+         end
+       end)
   end
 
   def contains_package(directory) do
@@ -50,19 +71,9 @@ defmodule Cpc.Purger do
   end
 
   # purges all older packages for all repositories (core, extra, community, …)
-  def purge(pkgname, dirname, keep) do
+  def purge(pkgfiles, pkgname, dirname, keep) do
     _ = Logger.debug "Purge package #{pkgname} inside #{dirname}"
-    deletion_candidates =
-      File.ls!(dirname)
-      |> Enum.map(&Path.join(dirname, &1))
-      |> Enum.filter(&File.regular?/1)
-      |> Enum.filter(fn filename -> String.ends_with?(filename, ".tar.xz") end)
-      |> Enum.map(fn filename ->
-           case split_filename(filename) do
-             {ppkgname, _, _} -> {filename, ppkgname}
-           end
-         end)
-      |> Enum.filter(fn {_, ppkgname} -> ppkgname == pkgname end)
+    deletion_candidates = Enum.filter(pkgfiles, fn {_, ppkgname} -> ppkgname == pkgname end)
     filenames = Enum.map(deletion_candidates, fn {filename, _} -> filename end)
     to_delete = prune_packages(filenames, keep)
     Enum.each(to_delete, fn filename ->
