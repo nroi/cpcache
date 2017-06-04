@@ -134,7 +134,8 @@ defmodule Cpc.Downloader do
     {:noreply, %{state | url: location, req_id: req_id, status: {:redirect, location}}}
   end
 
-  def handle_info({:ibrowse_async_response, _req_id, []}, state = %Dload{status: {:redirect, _}}) do
+  def handle_info({:ibrowse_async_response, _req_id, body}, state = %Dload{status: {:redirect, _}}) do
+    Logger.debug "Ignore redirect body: #{inspect body}"
     {:noreply, state}
   end
 
