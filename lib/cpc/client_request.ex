@@ -263,7 +263,7 @@ defmodule Cpc.ClientRequest do
         {:noreply, %{state | sent_header: true, action: action}}
       :not_found ->
         _ = Logger.debug "Remove file #{filename}."
-        # The file was previously created by Cpc.Serializer.
+        # The empty file was previously created by Cpc.Serializer.
         :ok = File.rm(filename)
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
