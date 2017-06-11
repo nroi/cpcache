@@ -6,6 +6,7 @@ ipv6_enabled = true
 # cpcache will routinely purge old packages. This parameter specifies how many
 # versions should be kept in the cache before purging.
 # Set to 0 to disable this behavior.
+# TODO make sure we still need this parameter
 keep = 3
 
 [x86]

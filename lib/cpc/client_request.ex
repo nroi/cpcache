@@ -8,7 +8,6 @@ defmodule Cpc.ClientRequest do
   defstruct sock: nil,
             distro: nil, # either :x86 or :arm
             serializer: nil,
-            purger: nil,
             sent_header: false, # true if we replied by sending the header to the client
             action: nil,
             timer_ref: nil,
@@ -23,14 +22,13 @@ defmodule Cpc.ClientRequest do
   end
 
   defp init_state(distro, sock) do
-    {serializer, purger} = case distro do
-                             :x86 -> {:x86_serializer, :x86_purger}
-                             :arm -> {:arm_serializer, :arm_purger}
-                           end
+    serializer = case distro do
+      :x86 -> :x86_serializer
+      :arm -> :arm_serializer
+    end
     %CR{sock: sock,
         distro: distro,
         serializer: serializer,
-        purger: purger,
         sent_header: false,
         action: :recv_header}
   end
@@ -593,7 +591,6 @@ defmodule Cpc.ClientRequest do
     :ok = GenServer.cast(state.serializer, {:download_ended, n, self()})
     _ = Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
-    :ok = GenServer.cast(state.purger, {:purge, n})
   end
 
   def terminate(:normal, _state) do
