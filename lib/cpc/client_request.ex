@@ -332,12 +332,14 @@ defmodule Cpc.ClientRequest do
           rs >= filesize -> {:http, state.headers.range_start}
         end
     end
-    raw_file = File.open!(filename, [:read, :raw])
     _ = Logger.debug "Start of requested content-range: #{inspect state.headers.range_start}"
     {start_http_from_byte, send_from_cache} = case retrieval_start_method do
       {:file, from} ->
         send_ = fn ->
-          {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
+          _ = Logger.debug "Sending #{filesize - from} bytes from cached file."
+          File.open(filename, [:read, :raw], fn raw_file ->
+            {:ok, _} = :file.sendfile(raw_file, state.sock, from, filesize - from, [])
+          end)
         end
         {filesize, send_}
       {:http, from} ->
@@ -366,7 +368,6 @@ defmodule Cpc.ClientRequest do
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
             send_from_cache.()
-            :ok = File.close(raw_file)
             {:ok, _} = Filewatcher.start_link(self(),
                                               filename,
                                               content_length,
@@ -398,7 +399,6 @@ defmodule Cpc.ClientRequest do
         serve_via_cache_and_http(state, filename, uri)
     end
   end
-
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, "/"}, _}},
                   state = %CR{action: :recv_header}) do
     :ok = :inet.setopts(state.sock, active: :once)
