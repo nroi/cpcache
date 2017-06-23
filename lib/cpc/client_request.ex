@@ -52,6 +52,7 @@ defmodule Cpc.ClientRequest do
       false ->
         case File.stat(Path.join(dirname, basename)) do
           {:error, :enoent} -> {false, false}
+          {:ok, %File.Stat{size: 0}} -> {false, false}
           {:ok, %File.Stat{size: size}} ->
             case content_length(uri, distro) do
               {:ok, ^size} ->             {true, true}
