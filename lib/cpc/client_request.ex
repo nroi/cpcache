@@ -570,14 +570,14 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | action: :recv_header}}
   end
 
-  def handle_cast({:file_complete, {_filename, _prev_size, _new_size}}, state) do
-    # Save to ignore: sometimes we catch the file completion via ibrowse_async_response_end, but the
-    # timer still informs us that the file has completed.
+  def handle_cast({:file_complete, _}, state) do
+    # Save to ignore: sometimes we notice the file has completed before this message is received,
+    # i.e., if the timer happens to fire at the exact moment when the file has completed.
     _ = Logger.debug "Ignore file completion."
     {:noreply, state}
   end
 
-  def handle_cast({:filesize_increased, {_filename, _prev_size, _new_size}}, state) do
+  def handle_cast({:filesize_increased, _}, state) do
     # Can be ignored for the same reasons as :file_complete:
     # timer still informs us that the file has completed.
     _ = Logger.debug "Ignore file size increase."

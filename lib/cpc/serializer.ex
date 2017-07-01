@@ -18,9 +18,9 @@ defmodule Cpc.Serializer do
         :downloading
       false ->
         # Create file to avoid race conditions:
-        # ibrowse will append to an existing file, other processes can stream from this file.
-        # If the file were created by ibrowse, other processes might attempt to read from
-        # an non-existing file.
+        # The Downloader process will append to an existing file, other processes can
+        # stream from this file. If the file were created by the Downloader process,
+        # other processes might attempt to read from a non-existing file.
         :ok = File.touch(filename)
         :unknown
     end

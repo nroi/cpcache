@@ -8,7 +8,6 @@ defmodule Cpc.Downloader do
             start_from: nil,
             receiver: nil,
             distro: nil,
-            req_id: nil,
             content_length: nil,
             start_time: nil,
             status: :unknown
@@ -47,6 +46,55 @@ defmodule Cpc.Downloader do
     data
   end
 
+  def measure_speed(state) do
+    now = :erlang.system_time(:micro_seconds)
+    diff = now - state.start_time
+    _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
+    _ = Logger.debug "Content length is: #{state.content_length}"
+    speed = bandwidth_to_human_readable(state.content_length, diff)
+    secs = Float.round(diff / 1000000, 2)
+    _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
+    host = URI.parse(to_string(state.url)).host
+    {:atomic, :ok} = :mnesia.transaction(fn ->
+      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, diff})
+    end)
+  end
+
+  def handle_success(headers, client, state) do
+    headers = Utils.headers_to_lower(headers)
+    content_length = :proplists.get_value("content-length", headers) |> String.to_integer
+    new_state = %{state | content_length: content_length}
+    Logger.debug "Content-length: #{content_length}"
+    full_content_length = case :proplists.get_value("content-range", headers) do
+      :undefined ->
+        content_length
+      header_line ->
+        [_, length] = String.split(header_line, "/")
+        String.to_integer(length)
+    end
+    send state.receiver, {:content_length, full_content_length}
+    path = url_without_host(state.url)
+    {:atomic, :ok} = :mnesia.transaction(fn ->
+      :mnesia.write({ContentLength, {state.distro, Path.basename(path)}, full_content_length})
+    end)
+    {:ok, file} = File.open(new_state.save_to, [:append, :raw])
+    download(client, file)
+    measure_speed(new_state)
+    new_state
+  end
+
+  def handle_failure(404, client, state) do
+    # TODO reconsider if we still need the entire 'state' data structure.
+    send state.receiver, :not_found
+    :ok = :hackney.close(client)
+    Logger.warn "Download of URL #{state.url} has failed: 404"
+  end
+  def handle_failure(status, client, state) do
+    :ok = :hackney.close(client)
+    Logger.warn "Download of URL #{state.url} has failed: #{status}"
+    # TODO what to do with other status codes? the receiver should be informed.
+  end
+
   def start_link(url, save_to, receiver, distro, start_from \\ nil) do
     GenServer.start_link(__MODULE__, {to_charlist(url),
                                       to_charlist(save_to),
@@ -61,125 +109,44 @@ defmodule Cpc.Downloader do
     {:ok, {url, save_to, receiver, distro, start_from}}
   end
 
-  def init_get_request(url, save_to, start_from) do
-    headers = case start_from do
+  def download(client, file) do
+    # TODO check if the delayed_write option has some performance implications.
+    case :hackney.stream_body(client) do
+      {:ok, result} ->
+        IO.binwrite(file, result)
+        download(client, file)
+      :done ->
+        :ok = File.close(file)
+    end
+  end
+
+  def init_get_request(state) do
+    headers = case state.start_from do
                 nil -> []
                 0 -> []
                 rs -> [{"Range", "bytes=#{rs}-"}]
               end
-    opts = [save_response_to_file: {:append, save_to}, stream_to: {self(), :once}]
-    {:ibrowse_req_id, req_id} = :ibrowse.send_req(url, headers, :get, [], opts, :infinity)
-    req_id
+    opts = [follow_redirect: true]
+    case :hackney.request(:get, state.url, headers, "", opts) do
+      {:ok, 200, headers, client} ->
+        handle_success(headers, client, state)
+      {:ok, 206, headers, client} ->
+        handle_success(headers, client, state)
+      {:ok, status, _headers, client} ->
+        handle_failure(status, client, state)
+    end
   end
 
   def handle_info(:init, {url, save_to, receiver, distro, start_from}) do
     start_time = :erlang.system_time(:micro_seconds)
-    req_id = init_get_request(url, save_to, start_from)
     state = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
                    receiver: receiver,
                    distro: distro,
-                   req_id: req_id}
-    {:noreply, %{state | start_time: start_time}}
-  end
-
-  def handle_info({:ibrowse_async_headers, req_id, '404', _}, state = %Dload{}) do
-    send state.receiver, :not_found
-    :ok = :ibrowse.stream_close(req_id)
-    Logger.warn "Download of URL #{state.url} has failed: 404"
+                   start_time: start_time}
+    init_get_request(state)
     {:stop, :normal, state}
-  end
-
-  def handle_info({:ibrowse_async_headers, req_id, '200', headers}, state = %Dload{}) do
-    headers = Utils.headers_to_lower(headers)
-    content_length = :proplists.get_value("content-length", headers) |> String.to_integer
-    Logger.debug "Content-length: #{content_length}"
-    send state.receiver, {:content_length, content_length}
-    path = url_without_host(state.url)
-    {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({ContentLength, {state.distro, Path.basename(path)}, content_length})
-    end)
-    :ok = :ibrowse.stream_next(req_id)
-    {:noreply, %{state |
-                 content_length: content_length,
-                 status: :ok}}
-  end
-
-  # When content-ranges are used, the server replies with the length of the partial file. However,
-  # we need to return the content length of the entire file to the client.
-  def handle_info({:ibrowse_async_headers, req_id, '206', headers}, state = %Dload{}) do
-    headers = Utils.headers_to_lower(headers)
-    content_length = :proplists.get_value("content-length", headers) |> String.to_integer
-    Logger.debug "Content-length: #{content_length}"
-    header_line = :proplists.get_value("content-range", headers)
-    [_, full_length] = String.split(header_line, "/")
-    full_content_length = String.to_integer(full_length)
-    send state.receiver, {:content_length, full_content_length}
-    path = url_without_host(state.url)
-    {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({ContentLength, path, full_content_length})
-    end)
-    :ok = :ibrowse.stream_next(req_id)
-    {:noreply, %{state |
-                 content_length: content_length,
-                 status: :ok}}
-  end
-
-  def handle_info({:ibrowse_async_headers, req_id, '302', headers}, state = %Dload{}) do
-    :ok = :ibrowse.stream_next(req_id)
-    headers = Utils.headers_to_lower(headers)
-    location = to_charlist(:proplists.get_value("location", headers))
-    _ = Logger.debug "Redirected to location #{location}"
-    {:noreply, %{state | url: location, req_id: req_id, status: {:redirect, location}}}
-  end
-
-  def handle_info({:ibrowse_async_response, _req_id, body}, state = %Dload{status: {:redirect, _}}) do
-    Logger.debug "Ignore redirect body: #{inspect body}"
-    {:noreply, state}
-  end
-
-  def handle_info({:ibrowse_async_response_end, req_id},
-                  state = %Dload{status: {:redirect, location}}) do
-    :ok = :ibrowse.stream_close(req_id)
-    start_time = :erlang.system_time(:micro_seconds)
-    req_id = init_get_request(location, state.save_to, state.start_from)
-    {:noreply, %{state | status: :unknown, req_id: req_id, start_time: start_time}}
-  end
-
-  def handle_info({:ibrowse_async_response, req_id, {:file, _}}, state) do
-    # ibrowse informs us where the file has been saved to. Ignored, we have other mechanisms in
-    # place to detect when the file has been downloaded completely.
-    :ok = :ibrowse.stream_next(req_id)
-    {:noreply, state}
-  end
-
-  def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :ok}) do
-    :ok = :ibrowse.stream_close(req_id)
-    now = :erlang.system_time(:micro_seconds)
-    diff = now - state.start_time
-    _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
-    speed = bandwidth_to_human_readable(state.content_length, diff)
-    secs = Float.round(diff / 1000000, 2)
-    _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
-    host = URI.parse(to_string(state.url)).host
-    {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, diff})
-    end)
-    {:stop, :normal, state}
-  end
-
-  def handle_info({:ibrowse_async_response_end, req_id}, state = %Dload{status: :redirect}) do
-    :ok = :ibrowse.stream_close(req_id)
-    {:noreply, state}
-  end
-
-  def terminate(status, %Dload{req_id: req_id}) do
-    Logger.debug "Downloader exits with status #{inspect status}."
-    # Close stream in case the download is still active.
-    # Otherwise, we would have an active download without supervision from the serializer, so we
-    # might end up writing to the same filename with multiple processes.
-    _ = :ibrowse.stream_close(req_id)
   end
 
   defp url_without_host(url) do
