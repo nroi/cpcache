@@ -8,10 +8,7 @@ defmodule Cpc.Downloader do
             start_from: nil,
             receiver: nil,
             distro: nil,
-            content_length: nil,
-            start_time: nil,
-            status: :unknown
-
+            start_time: nil
 
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
@@ -46,24 +43,23 @@ defmodule Cpc.Downloader do
     data
   end
 
-  def measure_speed(state) do
+  def measure_speed(request, content_length) do
     now = :erlang.system_time(:micro_seconds)
-    diff = now - state.start_time
-    _ = Logger.debug "Download of URL #{state.url} to file #{state.save_to} has completed."
-    _ = Logger.debug "Content length is: #{state.content_length}"
-    speed = bandwidth_to_human_readable(state.content_length, diff)
+    diff = now - request.start_time
+    _ = Logger.debug "Download of URL #{request.url} to file #{request.save_to} has completed."
+    _ = Logger.debug "Content length is: #{content_length}"
+    speed = bandwidth_to_human_readable(content_length, diff)
     secs = Float.round(diff / 1000000, 2)
-    _ = Logger.debug "Received #{state.content_length} bytes in #{secs} seconds (#{speed})."
-    host = URI.parse(to_string(state.url)).host
+    _ = Logger.debug "Received #{content_length} bytes in #{secs} seconds (#{speed})."
+    host = URI.parse(to_string(request.url)).host
     {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({DownloadSpeed, host, state.content_length, state.start_time, diff})
+      :mnesia.write({DownloadSpeed, host, content_length, request.start_time, diff})
     end)
   end
 
-  def handle_success(headers, client, state) do
+  def handle_success(headers, client, request) do
     headers = Utils.headers_to_lower(headers)
     content_length = :proplists.get_value("content-length", headers) |> String.to_integer
-    new_state = %{state | content_length: content_length}
     Logger.debug "Content-length: #{content_length}"
     full_content_length = case :proplists.get_value("content-range", headers) do
       :undefined ->
@@ -72,26 +68,24 @@ defmodule Cpc.Downloader do
         [_, length] = String.split(header_line, "/")
         String.to_integer(length)
     end
-    send state.receiver, {:content_length, full_content_length}
-    path = url_without_host(state.url)
+    send request.receiver, {:content_length, full_content_length}
+    path = url_without_host(request.url)
     {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({ContentLength, {state.distro, Path.basename(path)}, full_content_length})
+      :mnesia.write({ContentLength, {request.distro, Path.basename(path)}, full_content_length})
     end)
-    {:ok, file} = File.open(new_state.save_to, [:append, :raw])
+    {:ok, file} = File.open(request.save_to, [:append, :raw])
     download(client, file)
-    measure_speed(new_state)
-    new_state
+    measure_speed(request, content_length)
   end
 
-  def handle_failure(404, client, state) do
-    # TODO reconsider if we still need the entire 'state' data structure.
-    send state.receiver, :not_found
+  def handle_failure(404, client, request) do
+    send request.receiver, :not_found
     :ok = :hackney.close(client)
-    Logger.warn "Download of URL #{state.url} has failed: 404"
+    Logger.warn "Download of URL #{request.url} has failed: 404"
   end
-  def handle_failure(status, client, state) do
+  def handle_failure(status, client, request) do
     :ok = :hackney.close(client)
-    Logger.warn "Download of URL #{state.url} has failed: #{status}"
+    Logger.warn "Download of URL #{request.url} has failed: #{status}"
     # TODO what to do with other status codes? the receiver should be informed.
   end
 
@@ -120,33 +114,33 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def init_get_request(state) do
-    headers = case state.start_from do
+  def init_get_request(request) do
+    headers = case request.start_from do
                 nil -> []
                 0 -> []
                 rs -> [{"Range", "bytes=#{rs}-"}]
               end
     opts = [follow_redirect: true]
-    case :hackney.request(:get, state.url, headers, "", opts) do
+    case :hackney.request(:get, request.url, headers, "", opts) do
       {:ok, 200, headers, client} ->
-        handle_success(headers, client, state)
+        handle_success(headers, client, request)
       {:ok, 206, headers, client} ->
-        handle_success(headers, client, state)
+        handle_success(headers, client, request)
       {:ok, status, _headers, client} ->
-        handle_failure(status, client, state)
+        handle_failure(status, client, request)
     end
   end
 
   def handle_info(:init, {url, save_to, receiver, distro, start_from}) do
     start_time = :erlang.system_time(:micro_seconds)
-    state = %Dload{url: url,
+    request = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
                    receiver: receiver,
                    distro: distro,
                    start_time: start_time}
-    init_get_request(state)
-    {:stop, :normal, state}
+    init_get_request(request)
+    {:stop, :normal, request}
   end
 
   defp url_without_host(url) do
