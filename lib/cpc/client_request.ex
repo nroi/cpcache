@@ -38,6 +38,10 @@ defmodule Cpc.ClientRequest do
     {:ok, state}
   end
 
+  defp premature_close(filename) do
+    "Connection closed by client during data transfer. File #{filename} is incomplete."
+  end
+
   defp get_filename(uri, distro) do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, to_string distro)
@@ -542,7 +546,7 @@ defmodule Cpc.ClientRequest do
 
   def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
     # TODO this message is sometimes logged even though the transfer has completed.
-    _ = Logger.info "Connection closed by client during data transfer. File #{n} is incomplete."
+    _ = Logger.info premature_close(n)
     {:stop, :normal, nil}
   end
 
@@ -560,7 +564,13 @@ defmodule Cpc.ClientRequest do
   def handle_cast({:filesize_increased, {n1, prev_size, new_size}},
               state = %CR{action: {:filewatch, {f, n2}, content_length, _size}}) when n1 == n2 do
     {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
-    {:noreply, %{state | action: {:filewatch, {f, n2}, content_length, new_size}}}
+    case :file.sendfile(f, state.sock, prev_size, new_size - prev_size, []) do
+      {:ok, _} ->
+        {:noreply, %{state | action: {:filewatch, {f, n2}, content_length, new_size}}}
+      {:error, :closed} ->
+        _ = Logger.info premature_close(n1)
+        {:stop, :normal, nil}
+    end
   end
 
   def handle_cast({:file_complete, {n1, _prev_size, new_size}},
