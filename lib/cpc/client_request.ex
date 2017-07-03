@@ -10,6 +10,7 @@ defmodule Cpc.ClientRequest do
             serializer: nil,
             sent_header: false, # true if we replied by sending the header to the client
             action: nil,
+            downloader_pid: nil,
             timer_ref: nil,
             header_fields: [], # the unchanged headers, the way we received them
             headers: %{}, # a map containing the relevant data extracted from above headers
@@ -250,7 +251,7 @@ defmodule Cpc.ClientRequest do
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     url = mirror_uri(uri, state.distro, true)
-    Cpc.Downloader.start_link(url, filename, self(), state.distro, 0)
+    {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), state.distro, 0)
     receive do
       {:content_length, content_length} ->
         reply_header = header(content_length, state.headers.range_start)
@@ -263,7 +264,7 @@ defmodule Cpc.ClientRequest do
         end
         {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
         action = {:filewatch, {file, filename}, content_length, 0}
-        {:noreply, %{state | sent_header: true, action: action}}
+        {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
       :not_found ->
         _ = Logger.debug "Remove file #{filename}."
         # The empty file was previously created by Cpc.Serializer.
@@ -364,7 +365,8 @@ defmodule Cpc.ClientRequest do
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
         url = mirror_uri(uri, state.distro, true)
-        Cpc.Downloader.start_link(url, filename, self(), state.distro, start_http_from_byte)
+        {:ok, pid} = Cpc.Downloader.start_link(
+          url, filename, self(), state.distro, start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])
@@ -377,7 +379,7 @@ defmodule Cpc.ClientRequest do
                                               content_length,
                                               start_http_from_byte)
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
-            {:noreply, %{state | sent_header: true, action: action}}
+            {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
           :not_found ->
             reply_header = header_from_code(404)
             :ok = :gen_tcp.send(state.sock, reply_header)
@@ -544,15 +546,15 @@ defmodule Cpc.ClientRequest do
   end
 
 
-  def handle_info({:tcp_closed, _}, %CR{action: {:filewatch, {_, n}, _, _}}) do
+  def handle_info({:tcp_closed, _}, state = %CR{action: {:filewatch, {_, n}, _, _}}) do
     # TODO this message is sometimes logged even though the transfer has completed.
     _ = Logger.info premature_close(n)
-    {:stop, :normal, nil}
+    {:stop, :normal, state}
   end
 
-  def handle_info({:tcp_closed, _sock}, _state) do
+  def handle_info({:tcp_closed, _sock}, state) do
     _ = Logger.debug "Socket closed by client."
-    {:stop, :normal, nil}
+    {:stop, :normal, state}
   end
 
   def handle_info({:EXIT, _, :normal}, state) do
@@ -563,13 +565,12 @@ defmodule Cpc.ClientRequest do
 
   def handle_cast({:filesize_increased, {n1, prev_size, new_size}},
               state = %CR{action: {:filewatch, {f, n2}, content_length, _size}}) when n1 == n2 do
-    {:ok, _} = :file.sendfile(f, state.sock, prev_size, new_size - prev_size, [])
     case :file.sendfile(f, state.sock, prev_size, new_size - prev_size, []) do
       {:ok, _} ->
         {:noreply, %{state | action: {:filewatch, {f, n2}, content_length, new_size}}}
       {:error, :closed} ->
         _ = Logger.info premature_close(n1)
-        {:stop, :normal, nil}
+        {:stop, :normal, state}
     end
   end
 
@@ -604,15 +605,24 @@ defmodule Cpc.ClientRequest do
     ^content_length = File.stat!(n).size
   end
 
-  def terminate(:normal, _state) do
-    :ok
-  end
-  def terminate(status, state = %CR{sock: sock, sent_header: sent_header}) do
-    _ = Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
-    if !sent_header do
-        _ = :gen_tcp.send(sock, header_from_code(500))
+  def terminate(status, state = %CR{sock: sock, sent_header: sent_header, downloader_pid: pid}) do
+    case status do
+      :normal -> :ok
+      status ->
+        _ = Logger.error "Failed serving request with status #{inspect status}. State is: #{inspect state}"
+        if !sent_header do
+            _ = :gen_tcp.send(sock, header_from_code(500))
+        end
+        _ = :gen_tcp.close(sock)
     end
-    _ = :gen_tcp.close(sock)
+    # Ensure the downloader process is terminated before this process:
+    # The downloader process is responsible for writing to the file, but we can't have any process
+    # writing to the file after client_request terminates, because after client_request terminates,
+    # the file is marked as not being downloaded.
+    if pid do
+      _ = Logger.debug "Kill downloader process."
+      :erlang.exit(pid, :kill)
+    end
   end
 
 end

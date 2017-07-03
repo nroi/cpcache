@@ -99,7 +99,6 @@ defmodule Cpc.Downloader do
 
   def init({url, save_to, receiver, distro, start_from}) do
     send self(), :init
-    Process.flag(:trap_exit, true)
     {:ok, {url, save_to, receiver, distro, start_from}}
   end
 
