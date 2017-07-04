@@ -18,19 +18,25 @@ defmodule Cpc.Downloader do
     bytes_per_second = bytes / (microseconds / 1000000)
     exponent = :erlang.trunc(:math.log2(bytes_per_second) / :math.log2(1024))
     prefix = case exponent do
-               1 -> "Ki"
-               2 -> "Mi"
-               3 -> "Gi"
-               4 -> "Ti"
-               5 -> "Pi"
-               6 -> "Ei"
-               7 -> "Zi"
-               8 -> "Yi"
-               _ -> ""
+               0 -> {:ok, ""}
+               1 -> {:ok, "Ki"}
+               2 -> {:ok, "Mi"}
+               3 -> {:ok, "Gi"}
+               4 -> {:ok, "Ti"}
+               5 -> {:ok, "Pi"}
+               6 -> {:ok, "Ei"}
+               7 -> {:ok, "Zi"}
+               8 -> {:ok, "Yi"}
+               _ -> {:error, :too_large}
              end
-    quantity = Float.round(bytes_per_second / :math.pow(1024, exponent), 2)
-    unit = "#{prefix}B/s"
-    "#{quantity} #{unit}"
+    case prefix do
+      {:ok, prefix} ->
+        quantity = Float.round(bytes_per_second / :math.pow(1024, exponent), 2)
+        unit = "#{prefix}B/s"
+        "#{quantity} #{unit}"
+      {:error, :too_large} ->
+        "#{bytes_per_second} B/s"
+    end
   end
 
   # Returns the download stats from the previous duration_seconds seconds.
