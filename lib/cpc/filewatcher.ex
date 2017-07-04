@@ -20,6 +20,13 @@ defmodule Cpc.Filewatcher do
   end
 
   defp loop(args = {filename, prev_size, max_size, start_size, receiver}) do
+    if !Process.alive?(receiver) do
+      # If the receiver died, there is no longer any reason to inform it of file changes.
+      # Note that the receiver is the parent, hence this wouldn't be necessary if we were
+      # to use a timer with message passing rather than a loop. However, the message passing
+      # approach proved too inefficient with intervals as low as 5 ms.
+      exit(:normal)
+    end
     case File.stat!(filename).size do
       ^prev_size ->
         :timer.sleep(@interval)
