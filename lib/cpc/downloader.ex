@@ -71,7 +71,6 @@ defmodule Cpc.Downloader do
     # Rather than just testing if the server has an AAAA record set, we actually want to find out if
     # it successfully replies to a GET request. Experience shows that some servers have their AAAA
     # record set and still won't allow clients to connect via IPv6, e.g. due to connection timeouts.
-    opts = [connect_options: [:inet6], connect_timeout: 2000]
     db_result = :mnesia.transaction(fn ->
       :mnesia.read({Ipv6Support, host})
     end)
@@ -90,6 +89,7 @@ defmodule Cpc.Downloader do
     case prev_supported do
       :unknown ->
         _ = Logger.debug "Send HEAD request to test for IPv6 support"
+        opts = [connect_options: [:inet6], connect_timeout: 2000]
         support = case :hackney.request(:head, url, [], "", opts) do
           {:ok, 200, _} -> true
           {:ok, 206, _} -> true
