@@ -1,4 +1,5 @@
 defmodule Cpc.Downloader do
+  @validity 60 * 60 * 24 * 14
   require Logger
   use GenServer
   alias Cpc.Utils
@@ -62,6 +63,47 @@ defmodule Cpc.Downloader do
       :mnesia.write({DownloadSpeed, host, content_length, request.start_time, diff})
     end)
   end
+
+  def supports_ipv6(host, arch) do
+    # Rather than just testing if the server has an AAAA record set, we actually want to find out if
+    # it successfully replies to a GET request. Experience shows that some servers have their AAAA
+    # record set and still won't allow clients to connect via IPv6, e.g. due to connection timeouts.
+    url = case arch do
+      :x86 -> "#{host}/core/os/x86_64/core.db"
+      :arm -> "#{host}/aarch64/core/core.db"
+    end
+    opts = [connect_options: [:inet6], connect_timeout: 2000]
+    db_result = :mnesia.transaction(fn ->
+      :mnesia.read({Ipv6Support, host})
+    end)
+    prev_supported = case db_result do
+      {:atomic, []} -> :unknown
+      {:atomic, [{Ipv6Support, ^host, {then, supported_then}}]} ->
+        now = :os.system_time(:second)
+        diff = now - then
+        expired = diff >= @validity
+        if expired do
+          :unknown
+        else
+          supported_then
+        end
+    end
+    case prev_supported do
+      :unknown ->
+        support = case :hackney.request(:head, url, [], "", opts) do
+          {:ok, 200, _} -> true
+          {:ok, 206, _} -> true
+          _             -> false
+        end
+        {:atomic, :ok} = :mnesia.transaction(fn ->
+          :mnesia.write({Ipv6Support, host, {:os.system_time(:second), support}})
+        end)
+        support
+      false -> false
+      true  -> true
+    end
+  end
+
 
   def handle_success(headers, client, request) do
     headers = Utils.headers_to_lower(headers)

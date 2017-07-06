@@ -27,9 +27,9 @@ defmodule Cpc do
     init_round_robin(config, :arm)
   end
 
-  def init_mnesia() do
-    if not Enum.member?(:mnesia.system_info(:tables), ContentLength) do
-      _ = Logger.info "Table ContentLength does not exist, will create it."
+  def create_table(table, options) do
+    if not Enum.member?(:mnesia.system_info(:tables), table) do
+      _ = Logger.info "Table #{table} does not exist, will create it."
       :stopped = :mnesia.stop()
       case :mnesia.create_schema([node()]) do
         :ok ->
@@ -39,34 +39,23 @@ defmodule Cpc do
       end
       :ok = :mnesia.start()
       options = [attributes: [:path, :content_length], disc_copies: [node()]]
-      case :mnesia.create_table(ContentLength, options) do
+      case :mnesia.create_table(table, options) do
         {:atomic, :ok} ->
           _ = Logger.debug "Successfully created Mnesia table."
-        {:aborted, {:already_exists, ContentLength}} ->
+        {:aborted, {:already_exists, ^table}} ->
           _ = Logger.debug "Mnesia table already exists."
       end
     end
-    if not Enum.member?(:mnesia.system_info(:tables), DownloadSpeed) do
-      _ = Logger.info "Mnesia table does not exist, will create it."
-      :stopped = :mnesia.stop()
-      case :mnesia.create_schema([node()]) do
-        :ok ->
-          _ = Logger.debug "Successfully created schema for mnesia."
-        {:error, {_, {:already_exists, _}}} ->
-          _ = Logger.debug "Mnesia schema already exists."
-      end
-      :ok = :mnesia.start()
-      options = [attributes: [:url, :content_length, :start_time, :diff_time],
-                 disc_copies: [node()],
-                 type: :bag
-                ]
-      case :mnesia.create_table(DownloadSpeed, options) do
-        {:atomic, :ok} ->
-          _ = Logger.debug "Successfully created Mnesia table."
-        {:aborted, {:already_exists, DownloadSpeed}} ->
-          _ = Logger.debug "Mnesia table already exists."
-      end
-    end
+  end
+
+  def init_mnesia() do
+    options_downloadspeed = [attributes: [:url, :content_length, :start_time, :diff_time],
+                             disc_copies: [node()],
+                             type: :bag
+    ]
+    create_table(DownloadSpeed, options_downloadspeed)
+    create_table(ContentLength, [attributes: [:path, :content_length], disc_copies: [node()]])
+    create_table(Ipv6Support, [attributes: [:date, :supported]])
   end
 
   def start(_type, _args) do
