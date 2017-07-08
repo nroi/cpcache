@@ -38,7 +38,6 @@ defmodule Cpc do
           _ = Logger.debug "Mnesia schema already exists."
       end
       :ok = :mnesia.start()
-      options = [attributes: [:path, :content_length], disc_copies: [node()]]
       case :mnesia.create_table(table, options) do
         {:atomic, :ok} ->
           _ = Logger.debug "Successfully created Mnesia table."
