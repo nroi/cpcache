@@ -169,16 +169,22 @@ defmodule Cpc.Downloader do
               end
     opts = if supports_ipv6(request.url) do
       _ = Logger.debug "Use IPv6 for url #{request.url}"
-      [connect_options: [:inet6], follow_redirect: true]
+      [connect_options: [:inet6]]
     else
       _ = Logger.debug "Use IPv4 for url #{request.url}"
-      [follow_redirect: true]
+      []
     end
     case :hackney.request(:get, request.url, headers, "", opts) do
       {:ok, 200, headers, client} ->
         handle_success(headers, client, request)
       {:ok, 206, headers, client} ->
         handle_success(headers, client, request)
+      {:ok, 302, headers, _client} ->
+        headers = Utils.headers_to_lower(headers)
+        location = :proplists.get_value("location", headers)
+        _ = Logger.debug "Redirected to: #{location}"
+        # TODO detect redirect cycle.
+        init_get_request(%{request | url: location})
       {:ok, status, _headers, client} ->
         handle_failure(status, client, request)
     end
