@@ -104,6 +104,13 @@ defmodule Cpc.Downloader do
     end
   end
 
+  def handle_redirect(headers, request) do
+    headers = Utils.headers_to_lower(headers)
+    location = :proplists.get_value("location", headers)
+    _ = Logger.debug "Redirected to: #{location}"
+    # TODO detect redirect cycle.
+    init_get_request(%{request | url: location})
+  end
 
   def handle_success(headers, client, request) do
     headers = Utils.headers_to_lower(headers)
@@ -175,18 +182,25 @@ defmodule Cpc.Downloader do
       []
     end
     case :hackney.request(:get, request.url, headers, "", opts) do
-      {:ok, 200, headers, client} ->
-        handle_success(headers, client, request)
-      {:ok, 206, headers, client} ->
-        handle_success(headers, client, request)
-      {:ok, 302, headers, _client} ->
-        headers = Utils.headers_to_lower(headers)
-        location = :proplists.get_value("location", headers)
-        _ = Logger.debug "Redirected to: #{location}"
-        # TODO detect redirect cycle.
-        init_get_request(%{request | url: location})
-      {:ok, status, _headers, client} ->
-        handle_failure(status, client, request)
+      {:ok, status, headers, client} ->
+        case status do
+          200 ->
+            handle_success(headers, client, request)
+          206 ->
+            handle_success(headers, client, request)
+          301 ->
+            handle_redirect(headers, request)
+          302 ->
+            handle_redirect(headers, request)
+          303 ->
+            handle_redirect(headers, request)
+          307 ->
+            handle_redirect(headers, request)
+          308 ->
+            handle_redirect(headers, request)
+          status ->
+            handle_failure(status, client, request)
+        end
     end
   end
 
