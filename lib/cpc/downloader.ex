@@ -88,12 +88,11 @@ defmodule Cpc.Downloader do
     end
     case prev_supported do
       :unknown ->
-        _ = Logger.debug "Send HEAD request to test for IPv6 support"
+        _ = Logger.debug "Send HEAD request to test for IPv6 support."
         opts = [connect_options: [:inet6], connect_timeout: 2000]
         support = case :hackney.request(:head, url, [], "", opts) do
-          {:ok, 200, _} -> true
-          {:ok, 206, _} -> true
-          _             -> false
+          {:ok, _, _} -> true
+          _           -> false
         end
         {:atomic, :ok} = :mnesia.transaction(fn ->
           :mnesia.write({Ipv6Support, host, {:os.system_time(:second), support}})
