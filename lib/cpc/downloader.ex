@@ -103,12 +103,15 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def handle_redirect(headers, request) do
+  def handle_redirect(_headers, _request, 20 + 1) do
+    raise "20 redirections exceeded."
+  end
+  def handle_redirect(headers, request, num_redirect) do
     headers = Utils.headers_to_lower(headers)
     location = :proplists.get_value("location", headers)
     _ = Logger.debug "Redirected to: #{location}"
     # TODO detect redirect cycle.
-    init_get_request(%{request | url: location})
+    init_get_request(%{request | url: location}, num_redirect)
   end
 
   def handle_success(headers, client, request) do
@@ -167,7 +170,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def init_get_request(request) do
+  def init_get_request(request, num_redirect \\ 0) do
     headers = case request.start_from do
                 nil -> []
                 0 -> []
@@ -188,15 +191,15 @@ defmodule Cpc.Downloader do
           206 ->
             handle_success(headers, client, request)
           301 ->
-            handle_redirect(headers, request)
+            handle_redirect(headers, request, num_redirect + 1)
           302 ->
-            handle_redirect(headers, request)
+            handle_redirect(headers, request, num_redirect + 1)
           303 ->
-            handle_redirect(headers, request)
+            handle_redirect(headers, request, num_redirect + 1)
           307 ->
-            handle_redirect(headers, request)
+            handle_redirect(headers, request, num_redirect + 1)
           308 ->
-            handle_redirect(headers, request)
+            handle_redirect(headers, request, num_redirect + 1)
           status ->
             handle_failure(status, client, request)
         end
