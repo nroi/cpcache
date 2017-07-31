@@ -103,7 +103,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def handle_redirect(_headers, _request, 20 + 1) do
+  def handle_redirect(_headers, _request, 21) do
     raise "20 redirections exceeded."
   end
   def handle_redirect(headers, request, num_redirect) do
