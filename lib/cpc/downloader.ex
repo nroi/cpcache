@@ -219,7 +219,19 @@ defmodule Cpc.Downloader do
   end
 
   defp url_without_host(url) do
-    url |> to_string |> URI.path_to_segments |> Enum.drop(-2) |> Enum.reverse |> Path.join
+    url |> to_string |> path_to_segments |> Enum.drop(-2) |> Enum.reverse |> Path.join
+  end
+
+  defp path_to_segments(path) do
+    [head | tail] = String.split(path, "/")
+    reverse_and_discard_empty(tail, [head])
+  end
+
+  defp reverse_and_discard_empty([], acc), do: acc
+  defp reverse_and_discard_empty([head], acc), do: [head | acc]
+  defp reverse_and_discard_empty(["" | tail], acc), do: reverse_and_discard_empty(tail, acc)
+  defp reverse_and_discard_empty([head | tail], acc) do
+    reverse_and_discard_empty(tail, [head | acc])
   end
 
 end
