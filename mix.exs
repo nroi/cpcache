@@ -4,7 +4,7 @@ defmodule Cpc.Mixfile do
   def project do
     [app: :cpcache,
      version: "0.1.0",
-     elixir: "~> 1.3",
+     elixir: "~> 1.5",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      deps: deps()]
@@ -29,7 +29,7 @@ defmodule Cpc.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:distillery, "~> 1.1"},
+      {:distillery, "~> 1.5"},
       {:hackney, "~> 1.8"},
       {:jerry, git: "https://github.com/nroi/jerry.git"}
     ]
