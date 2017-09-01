@@ -9,7 +9,7 @@ defmodule Cpc.Listener do
   def init(dist) when dist == :x86 or dist == :arm do
     [{^dist, ets_map}] = :ets.lookup(:cpc_config, dist)
     [{:ipv6_enabled, ipv6_enabled}] = :ets.lookup(:cpc_config, :ipv6_enabled)
-    %{port: port} = ets_map
+    %{"port" => port} = ets_map
     standard_opts = [
       :binary,
       :inet6,

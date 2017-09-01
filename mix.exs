@@ -14,7 +14,7 @@ defmodule Cpc.Mixfile do
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :hackney, :mnesia, :tomlex],
+    [applications: [:logger, :inets, :ssl, :hackney, :mnesia],
      mod: {Cpc, []}]
   end
 
@@ -30,8 +30,8 @@ defmodule Cpc.Mixfile do
   defp deps do
     [
       {:distillery, "~> 1.1"},
-      {:tomlex, "~> 0.0.5"},
-      {:hackney, "~> 1.8"}
+      {:hackney, "~> 1.8"},
+      {:jerry, git: "https://github.com/nroi/jerry.git"}
     ]
   end
 end

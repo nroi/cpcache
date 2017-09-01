@@ -47,7 +47,7 @@ defmodule Cpc.ClientRequest do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, to_string distro)
                 end
-    [{^distro, %{mirrors: [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
+    [{^distro, %{"mirrors" => [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -209,7 +209,7 @@ defmodule Cpc.ClientRequest do
               {false, [{^distro, {index, _}}]} -> index
             end
     case :ets.lookup(:cpc_config, distro) do
-      [{_, %{mirrors: mirrors}}] ->
+      [{_, %{"mirrors" => mirrors}}] ->
         :ets.lookup(:cpc_config, distro)
         Enum.at(mirrors, index)
     end
