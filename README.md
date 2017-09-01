@@ -1,3 +1,5 @@
+__cpcache is a work in progress. Changes are required to make it work with the most recent version of Erlang/OTP.__
+
 # cpcache
 
 cpcache is a central cache for pacman, the package manager of Arch Linux. It requires little
