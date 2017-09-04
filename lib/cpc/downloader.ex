@@ -183,6 +183,7 @@ defmodule Cpc.Downloader do
       _ = Logger.debug "Use IPv4 for url #{request.url}"
       []
     end
+    _ = Logger.debug "GET #{inspect request.url} with headers #{inspect headers} and opts #{inspect opts}"
     case :hackney.request(:get, request.url, headers, "", opts) do
       {:ok, status, headers, client} ->
         case status do
