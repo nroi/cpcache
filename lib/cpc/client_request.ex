@@ -86,7 +86,7 @@ defmodule Cpc.ClientRequest do
 
   defp key_from_config() do
     case :ets.lookup(:cpc_config, :recv_packages) do
-      [recv_packages: %{key: sk}] -> {:ok, sk}
+      [recv_packages: %{"key" => sk}] -> {:ok, sk}
       _ -> {:error, :key_not_found}
     end
   end
@@ -490,7 +490,9 @@ defmodule Cpc.ClientRequest do
           :ok -> :ok
           {:error, :eexist} -> :ok
         end
-        {:ok, file} = File.open(Path.join(path, hn), [:write])
+        filename = Path.join(path, hn)
+        Logger.debug "Attempt to write file: #{filename}"
+        {:ok, file} = File.open(filename, [:write])
         :ok = IO.write file, content
         :ok = File.close(file)
     end
