@@ -1,5 +1,6 @@
 defmodule Cpc.ClientRequest do
   @max_body_size 500000
+  @serializer_timeout "Timeout while waiting for serializer to reply."
   alias Cpc.ClientRequest, as: CR
   alias Cpc.Filewatcher
   alias Cpc.Utils
@@ -403,6 +404,8 @@ defmodule Cpc.ClientRequest do
       :unknown ->
         _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
         serve_via_cache_and_http(state, filename, uri)
+    after 500 ->
+      raise @serializer_timeout
     end
   end
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, "/"}, _}},
@@ -528,6 +531,8 @@ defmodule Cpc.ClientRequest do
           :unknown ->
             _ = Logger.debug "Status of file is: :unknown"
             serve_via_http(filename, new_state, uri)
+          after 500 ->
+            raise @serializer_timeout
         end
     end
   end
