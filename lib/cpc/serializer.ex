@@ -22,8 +22,12 @@ defmodule Cpc.Serializer do
         # stream from this file. If the file were created by the Downloader process,
         # other processes might attempt to read from a non-existing file.
         _ = Logger.debug "Attempt to touch file #{filename}"
-        :ok = File.touch(filename)
-        :unknown
+        case File.touch(filename) do
+          :ok -> :unknown
+          _ ->
+            Logger.info "Unable to access file: #{filename}"
+            :invalid_path
+        end
     end
     send from, filename_status
     new_state = case filename_status do
@@ -32,8 +36,10 @@ defmodule Cpc.Serializer do
         # downloaded.
         ref = :erlang.monitor(:process, from)
         [{from, filename, ref} | pidfnref]
-       :downloading ->
-         pidfnref
+      :downloading ->
+        pidfnref
+      :invalid_path ->
+        pidfnref
     end
     {:noreply, new_state}
   end

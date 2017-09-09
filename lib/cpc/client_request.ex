@@ -404,6 +404,9 @@ defmodule Cpc.ClientRequest do
       :unknown ->
         _ = Logger.info "Serve file #{filename} partly via cache, partly via HTTP."
         serve_via_cache_and_http(state, filename, uri)
+      :invalid_path ->
+        :ok = :gen_tcp.send(state.sock, header_from_code(404))
+        {:stop, :normal, state}
     after 500 ->
       raise @serializer_timeout
     end
@@ -531,6 +534,9 @@ defmodule Cpc.ClientRequest do
           :unknown ->
             _ = Logger.debug "Status of file is: :unknown"
             serve_via_http(filename, new_state, uri)
+          :invalid_path ->
+            :ok = :gen_tcp.send(state.sock, header_from_code(404))
+            {:stop, :normal, state}
           after 500 ->
             raise @serializer_timeout
         end
