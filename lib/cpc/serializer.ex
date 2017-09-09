@@ -21,6 +21,7 @@ defmodule Cpc.Serializer do
         # The Downloader process will append to an existing file, other processes can
         # stream from this file. If the file were created by the Downloader process,
         # other processes might attempt to read from a non-existing file.
+        _ = Logger.debug "Attempt to touch file #{filename}"
         :ok = File.touch(filename)
         :unknown
     end
