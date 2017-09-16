@@ -31,7 +31,7 @@ defmodule Cpc.Mixfile do
     [
       {:distillery, "~> 1.5"},
       {:hackney, "~> 1.8"},
-      {:jerry, git: "https://github.com/nroi/jerry.git"}
+      {:jerry, "~> 0.1"}
     ]
   end
 end
