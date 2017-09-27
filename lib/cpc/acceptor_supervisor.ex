@@ -1,6 +1,5 @@
 defmodule Cpc.AcceptorSupervisor do
   use Supervisor
-  require Logger
 
   def start_link() do
     Supervisor.start_link(__MODULE__, [], name: __MODULE__)
