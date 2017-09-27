@@ -31,7 +31,7 @@ defmodule Cpc.Mixfile do
     [
       {:distillery, "~> 1.5"},
       {:hackney, "~> 1.8"},
-      {:jerry, "~> 0.1"}
+      {:jerry, "~> 0.1.3"}
     ]
   end
 end
