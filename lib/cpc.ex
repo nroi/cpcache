@@ -17,7 +17,6 @@ defmodule Cpc do
     config = Jerry.decode!(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
     :ets.new(:cpc_round_robin, [:named_table, :public])
-    :ets.insert(:cpc_config, {:keep, config["keep"]})
     :ets.insert(:cpc_config, {:arm, config["arm"]})
     :ets.insert(:cpc_config, {:x86, config["x86"]})
     :ets.insert(:cpc_config, {:cache_directory, config["cache_directory"]})

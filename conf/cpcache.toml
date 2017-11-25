@@ -3,12 +3,6 @@ cache_directory = "/var/cache/cpcache"
 # Bind to an IPv6 address, in addition to an IPv4 address.
 ipv6_enabled = true
 
-# cpcache will routinely purge old packages. This parameter specifies how many
-# versions should be kept in the cache before purging.
-# Set to 0 to disable this behavior.
-# TODO make sure we still need this parameter
-keep = 3
-
 [x86]
     # Enter the URL of the mirror currently used in /etc/pacman.d/mirrorlist
     # here, WITHOUT trailing $repo/os/$arch.

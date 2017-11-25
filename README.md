@@ -58,15 +58,6 @@ In case you want to use NGINX as reverse proxy, keep in mind that it uses cachin
 will cause timeouts in pacman since downloads then requires a few seconds to start. Use
 `proxy_buffering off;` to prevent this.
 
-## Dependencies
-Apart from Elixir and Erlang, cpcache requires
-[inotify-tools](https://github.com/rvoicilas/inotify-tools) and paccache. paccache (not to be confused with
-[paccache](https://github.com/eworm-de/paccache) mentioned above) is included with pacman, hence it
-does not need to be installed if you're running Arch Linux. If your using another distribution, you
-can either fetch the paccache shell script from the official pacman package, or simply set the
-`keep` option to `0` in `/etc/cpcache.toml`, which will deactivate purging and therefore not require
-paccache.
-
 ## Limitations
 The mirror configured in /etc/cpcache.toml must use the default relative path, i.e., `$repo/os/$arch`
 for x86 and `$arch/$repo` for ARM.
