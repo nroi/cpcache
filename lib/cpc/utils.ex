@@ -5,15 +5,10 @@ defmodule Cpc.Utils do
     end)
   end
 
-  def cache_dir_from_distro(distro) when distro == :x86 or distro == :arm do
-    case :ets.lookup(:cpc_config, :cache_directory) do
-      [{:cache_directory, cache_directory}] ->
-        Path.join(cache_directory, to_string distro)
-    end
-  end
-
-  def wanted_packages_dir(distro, arch) when distro == :x86 or distro == :arm do
-    cache_dir = cache_dir_from_distro(distro)
-    Path.join([cache_dir, "wanted_packages", arch])
+  # Returns the directory where the "wanted packages" are stored on the server
+  # (i.e., the packages that a given client wants to have downloaded in advance).
+  def wanted_packages_dir() do
+    [{:cache_directory, cache_directory}] = :ets.lookup(:cpc_config, :cache_directory)
+    Path.join([cache_directory, "wanted_packages"])
   end
 end

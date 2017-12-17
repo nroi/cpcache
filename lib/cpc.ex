@@ -3,27 +3,24 @@ defmodule Cpc do
   require Logger
   @config_path "/etc/cpcache/cpcache.toml"
 
-  defp init_round_robin(config, distro) when distro == :x86 or distro == :arm do
-    case config[to_string(distro)] do
-      nil -> :ok
-      dconfig ->
-        num_mirrors = Enum.count(dconfig["mirrors"])
-        random = Enum.random(0..num_mirrors - 1)
-        :ets.insert(:cpc_round_robin, {distro, {random, num_mirrors}})
-    end
+  defp init_round_robin(config) do
+    num_mirrors = Enum.count(config["mirrors"])
+    random = Enum.random(0..num_mirrors - 1)
+    :ets.insert(:cpc_state, {:round_robin, {random, num_mirrors}})
   end
 
   def init_config() do
     config = Jerry.decode!(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
-    :ets.new(:cpc_round_robin, [:named_table, :public])
-    :ets.insert(:cpc_config, {:arm, config["arm"]})
-    :ets.insert(:cpc_config, {:x86, config["x86"]})
+    :ets.new(:cpc_state, [:named_table, :public])
+    :ets.insert(:cpc_config, {:port, config["port"]})
     :ets.insert(:cpc_config, {:cache_directory, config["cache_directory"]})
     :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
     :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enabled"]})
-    init_round_robin(config, :x86)
-    init_round_robin(config, :arm)
+    :ets.insert(:cpc_config, {:mirrors, config["mirrors"]})
+    # TODO are we actually using that option anywhere?
+    :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enforced"]})
+    init_round_robin(config)
   end
 
   def create_table(table, options) do
@@ -60,20 +57,11 @@ defmodule Cpc do
     import Supervisor.Spec, warn: false
     init_config()
     init_mnesia()
-    arm_child = case :ets.lookup(:cpc_config, :arm) do
-      [arm: nil] -> :not_specified
-      [arm: _]   -> {:specified, supervisor(Cpc.ArchSupervisor, [:arm], id: :arm_supervisor)}
-    end
-    x86_child = case :ets.lookup(:cpc_config, :x86) do
-      [x86: nil] -> :not_specified
-      [x86: _]   -> {:specified, supervisor(Cpc.ArchSupervisor, [:x86], id: :x86_supervisor)}
-    end
-    children = for {:specified, child} <- [arm_child, x86_child], do: child
-    if children == [] do
-      raise "At least one architecture must be specified in #{@config_path}: arm or x86."
-    end
+    children = [
+      supervisor(Cpc.ArchSupervisor, []),
+      supervisor(Cpc.AcceptorSupervisor, [])
+    ]
     opts = [strategy: :one_for_one, name: __MODULE__]
-    sup = supervisor(Cpc.AcceptorSupervisor, [])
-    Supervisor.start_link([sup|children], opts)
+    Supervisor.start_link(children, opts)
   end
 end

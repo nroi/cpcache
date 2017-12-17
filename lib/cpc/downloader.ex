@@ -8,7 +8,6 @@ defmodule Cpc.Downloader do
             save_to: nil,
             start_from: nil,
             receiver: nil,
-            distro: nil,
             start_time: nil
 
 
@@ -128,7 +127,7 @@ defmodule Cpc.Downloader do
     send request.receiver, {:content_length, full_content_length}
     path = url_without_host(request.url)
     {:atomic, :ok} = :mnesia.transaction(fn ->
-      :mnesia.write({ContentLength, {request.distro, Path.basename(path)}, full_content_length})
+      :mnesia.write({ContentLength, {Path.basename(path)}, full_content_length})
     end)
     {:ok, file} = File.open(request.save_to, [:append, :raw])
     download(client, file)
@@ -146,17 +145,16 @@ defmodule Cpc.Downloader do
     # TODO what to do with other status codes? the receiver should be informed.
   end
 
-  def start_link(url, save_to, receiver, distro, start_from \\ nil) do
+  def start_link(url, save_to, receiver, start_from \\ nil) do
     GenServer.start_link(__MODULE__, {to_charlist(url),
                                       to_charlist(save_to),
                                       receiver,
-                                      distro,
                                       start_from})
   end
 
-  def init({url, save_to, receiver, distro, start_from}) do
+  def init({url, save_to, receiver, start_from}) do
     send self(), :init
-    {:ok, {url, save_to, receiver, distro, start_from}}
+    {:ok, {url, save_to, receiver, start_from}}
   end
 
   def download(client, file) do
@@ -207,13 +205,12 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def handle_info(:init, {url, save_to, receiver, distro, start_from}) do
+  def handle_info(:init, {url, save_to, receiver, start_from}) do
     start_time = :erlang.system_time(:micro_seconds)
     request = %Dload{url: url,
                    save_to: save_to,
                    start_from: start_from,
                    receiver: receiver,
-                   distro: distro,
                    start_time: start_time}
     init_get_request(request)
     {:stop, :normal, request}

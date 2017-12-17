@@ -7,30 +7,21 @@ defmodule Cpc.ClientRequest do
   require Logger
   use GenServer
   defstruct sock: nil,
-            distro: nil, # either :x86 or :arm
-            serializer: nil,
             sent_header: false, # true if we replied by sending the header to the client
             action: nil,
             downloader_pid: nil,
             timer_ref: nil,
-            header_fields: [], # the unchanged headers, the way we received them
+            header_fields: [], # the unchanged headers, in the form we received them
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
 
 
-
-  def start_link(distro, sock) do
-    GenServer.start_link(__MODULE__, init_state(distro, sock))
+  def start_link(sock) do
+    GenServer.start_link(__MODULE__, init_state(sock))
   end
 
-  defp init_state(distro, sock) do
-    serializer = case distro do
-      :x86 -> :x86_serializer
-      :arm -> :arm_serializer
-    end
+  defp init_state(sock) do
     %CR{sock: sock,
-        distro: distro,
-        serializer: serializer,
         sent_header: false,
         action: :recv_header}
   end
@@ -44,11 +35,11 @@ defmodule Cpc.ClientRequest do
     "Connection closed by client during data transfer. File #{filename} is incomplete."
   end
 
-  defp get_filename(uri, distro) do
+  defp get_filename(uri) do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
-                  [{:cache_directory, cd}] -> Path.join(cd, to_string distro)
+                  [{:cache_directory, cd}] -> Path.join(cd, "pkg")
                 end
-    [{^distro, %{"mirrors" => [mirror | _]}}] = :ets.lookup(:cpc_config, distro)
+    [{:mirrors, [mirror | _]}] = :ets.lookup(:cpc_config, :mirrors)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -60,7 +51,7 @@ defmodule Cpc.ClientRequest do
           {:error, :enoent} -> {false, false}
           {:ok, %File.Stat{size: 0}} -> {false, false}
           {:ok, %File.Stat{size: size}} ->
-            case content_length(uri, distro) do
+            case content_length(uri) do
               {:ok, ^size} ->             {true, true}
               {:ok, cl} when cl > size -> {true, false}
               {:error, :not_found} ->
@@ -193,25 +184,24 @@ defmodule Cpc.ClientRequest do
   end
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
-  def mirror_uri(uri, distro, round_robin) do
-    mirror = random_mirror(distro, round_robin)
+  def mirror_uri(uri, round_robin) do
+    mirror = random_mirror(round_robin)
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
   end
 
-  # Returns the mirror for the given distro. round_robin should be set to true if
+  # Returns a mirror. round_robin should be set to true if
   # a new mirror should be chosen afterwards.
-  def random_mirror(distro, round_robin) when distro == :x86 or distro == :arm do
-    index = case {round_robin, :ets.lookup(:cpc_round_robin, distro)} do
-              {true, [{^distro, {index, num_mirrors}}]} ->
+  def random_mirror(round_robin) do
+    index = case {round_robin, :ets.lookup(:cpc_state, :round_robin)} do
+              {true, [{:round_robin, {index, num_mirrors}}]} ->
                 new_idx = rem(index + 1, num_mirrors)
-                Logger.warn "insert new index: #{inspect new_idx}"
-                :ets.insert(:cpc_round_robin, {distro, {new_idx, num_mirrors}})
+                Logger.debug "Insert new index for round robin: #{inspect new_idx}"
+                :ets.insert(:cpc_state, {:round_robin, {new_idx, num_mirrors}})
                 index
-              {false, [{^distro, {index, _}}]} -> index
+              {false, [{:round_robin, {index, _}}]} -> index
             end
-    case :ets.lookup(:cpc_config, distro) do
-      [{_, %{"mirrors" => mirrors}}] ->
-        :ets.lookup(:cpc_config, distro)
+    case :ets.lookup(:cpc_config, :mirrors) do
+      [{:mirrors, mirrors}] ->
         Enum.at(mirrors, index)
     end
   end
@@ -219,12 +209,12 @@ defmodule Cpc.ClientRequest do
   # Given the requested URI, fetch the full content-length from the server.
   # req_uri must be the URI as requested by the user, not the URI that will be used to GET the file
   # via HTTP.
-  def content_length(req_uri, distro) do
+  def content_length(req_uri) do
     db_result = :mnesia.transaction(fn ->
-      :mnesia.read({ContentLength, {distro, Path.basename(req_uri)}})
+      :mnesia.read({ContentLength, Path.basename(req_uri)})
     end)
     result = case db_result do
-      {:atomic, [{ContentLength, {^distro, _basename}, content_length}]} -> {:ok, content_length}
+      {:atomic, [{ContentLength, _basename, content_length}]} -> {:ok, content_length}
       {:atomic, []} -> :not_found
     end
     case result do
@@ -233,7 +223,7 @@ defmodule Cpc.ClientRequest do
         {:ok, content_length}
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        uri = mirror_uri(req_uri, distro, false)
+        uri = mirror_uri(req_uri, false)
         headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
                     {:ok, {{_, 200, _}, headers, _}} -> {:ok, Utils.headers_to_lower(headers)}
                     {:ok, {{_, 404, _}, _headers, _}} -> {:error, :not_found}
@@ -251,8 +241,8 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(uri, state.distro, true)
-    {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), state.distro, 0)
+    url = mirror_uri(uri, true)
+    {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
     receive do
       {:content_length, content_length} ->
         reply_header = header(content_length, state.headers.range_start)
@@ -277,7 +267,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    url = mirror_uri(uri, state.distro, true)
+    url = mirror_uri(uri, true)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -312,7 +302,7 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_growing_file(filename, state) do
     %CR{request: {:GET, uri}} = state
-    {:ok, full_content_length} = content_length(uri, state.distro)
+    {:ok, full_content_length} = content_length(uri)
     {:ok, _} = Filewatcher.start_link(self(), filename, full_content_length)
     _ = Logger.info "File #{filename} is already being downloaded, initiate download from " <>
                 "growing file."
@@ -353,7 +343,7 @@ defmodule Cpc.ClientRequest do
     end
     _ = Logger.debug "Start HTTP download from byte #{start_http_from_byte}"
     range_start = state.headers.range_start
-    case content_length(uri, state.distro) do
+    case content_length(uri) do
       {:ok, cl} when cl == filesize ->
         _ = Logger.warn "The entire file has already been downloaded by the server."
         serve_via_cache(filename, state, range_start)
@@ -365,9 +355,9 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        url = mirror_uri(uri, state.distro, true)
+        url = mirror_uri(uri, true)
         {:ok, pid} = Cpc.Downloader.start_link(
-          url, filename, self(), state.distro, start_http_from_byte)
+          url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])
@@ -397,7 +387,7 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_partial_file(state, filename, uri) do
     # The requested file already exists, but its size is smaller than the content length
-    send state.serializer, {self(), :state?, filename}
+    send Cpc.Serializer, {self(), :state?, filename}
     receive do
       :downloading ->
         serve_via_growing_file(filename, state)
@@ -448,12 +438,12 @@ defmodule Cpc.ClientRequest do
     uri = case path do
       "/" <> rest -> URI.decode(rest)
     end
-    init_state = init_state(state.distro, state.sock)
+    init_state = init_state(state.sock)
     {:noreply, %{init_state | request: {:GET, uri}}}
   end
 
   def handle_info({:http, _, :http_eoh},
-                  state = %CR{action: :recv_header, request: {:POST, {arch, hn}}}) do
+                  state = %CR{action: :recv_header, request: {:POST, hn}}) do
     :ok = :inet.setopts(state.sock, packet: :raw)
     new_state = %{state | headers: extract_headers(state.header_fields)}
     if new_state.headers.continue do
@@ -491,7 +481,7 @@ defmodule Cpc.ClientRequest do
         :ok = :gen_tcp.send(new_state.sock, header_from_code(200))
         :ok = :gen_tcp.close(new_state.sock)
         _ = Logger.debug "Write file for host #{hn}"
-        path = Cpc.Utils.wanted_packages_dir(new_state.distro, arch)
+        path = Cpc.Utils.wanted_packages_dir()
         case File.mkdir_p(path) do
           :ok -> :ok
           {:error, :eexist} -> :ok
@@ -510,7 +500,7 @@ defmodule Cpc.ClientRequest do
     _ = Logger.debug "Received end of header."
     new_state = %{state | headers: extract_headers(state.header_fields)}
     complete_file_requested = new_state.headers.range_start == nil
-    case get_filename(uri, new_state.distro) do
+    case get_filename(uri) do
       {:database, db_url} ->
         serve_db_via_redirect(db_url, new_state)
       {:complete_file, filename} ->
@@ -526,7 +516,7 @@ defmodule Cpc.ClientRequest do
                         "Serve request via redirect."
         serve_package_via_redirect(new_state, uri)
       {:not_found, filename} ->
-        send new_state.serializer, {self(), :state?, filename}
+        send Cpc.Serializer, {self(), :state?, filename}
         receive do
           :downloading ->
             _ = Logger.debug "Status of file is: :downloading"
@@ -546,10 +536,10 @@ defmodule Cpc.ClientRequest do
   def handle_info({:http, _, {:http_request, :POST, {:abs_path, "/" <> path}, _}},
                   state = %CR{action: :recv_header}) do
     :ok = :inet.setopts(state.sock, active: :once)
-    [arch, hn] = String.split(path, "/")
-    _ = Logger.debug "Received POST request for architecture #{arch}, hostname #{hn}"
-    init_state = init_state(state.distro, state.sock)
-    {:noreply, %{init_state | request: {:POST, {arch, hn}}}}
+    [_, hn] = String.split(path, "/")
+    _ = Logger.debug "Received POST request for hostname #{hn}"
+    init_state = init_state(state.sock)
+    {:noreply, %{init_state | request: {:POST, hn}}}
   end
 
   def handle_info({:http, _, header_field = {:http_header, _, _, _, _}},
@@ -613,7 +603,7 @@ defmodule Cpc.ClientRequest do
     {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
     _ = Logger.debug "Sendfile has completed."
     :ok = File.close(f)
-    :ok = GenServer.cast(state.serializer, {:download_ended, n, self()})
+    :ok = GenServer.cast(Cpc.Serializer, {:download_ended, n, self()})
     _ = Logger.debug "File is closed."
     ^content_length = File.stat!(n).size
   end

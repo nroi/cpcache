@@ -2,8 +2,8 @@ defmodule Cpc.Serializer do
   use GenServer
   require Logger
 
-  def start_link(name) do
-    GenServer.start_link(__MODULE__, [], name: name)
+  def start_link() do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
   def handle_info({from, :state?, filename}, pidfnref) do
