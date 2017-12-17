@@ -18,8 +18,6 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
     :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enabled"]})
     :ets.insert(:cpc_config, {:mirrors, config["mirrors"]})
-    # TODO are we actually using that option anywhere?
-    :ets.insert(:cpc_config, {:ipv6_enforced, config["ipv6_enforced"]})
     init_round_robin(config)
   end
 
