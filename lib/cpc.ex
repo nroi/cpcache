@@ -4,7 +4,7 @@ defmodule Cpc do
   @config_path "/etc/cpcache/cpcache.toml"
 
   defp init_round_robin(config) do
-    num_mirrors = Enum.count(config["mirrors"])
+    num_mirrors = Enum.count(config["mirrors_predefined"])
     random = Enum.random(0..num_mirrors - 1)
     :ets.insert(:cpc_state, {:round_robin, {random, num_mirrors}})
   end
@@ -17,7 +17,27 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:cache_directory, config["cache_directory"]})
     :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
     :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enabled"]})
-    :ets.insert(:cpc_config, {:mirrors, config["mirrors"]})
+    :ets.insert(:cpc_config, {:mirrors, config["mirrors_predefined"]})
+    case config["mirror_selection_method"] do
+      "auto" ->
+        case config["mirrors_auto"] do
+          %{"https_required" => https_required,
+            "ipv4" => ipv4,
+            "ipv6" => ipv6,
+            "min_score" => min_score,
+            "timeout" => timeout} ->
+              map = %{
+                https_required: https_required,
+                ipv4: ipv4,
+                ipv6: ipv6,
+                min_score: min_score,
+                timeout: timeout
+              }
+              :ets.insert(:cpc_config, {:mirror_selection, {:auto, map}})
+        end
+      "predefined" ->
+        :ok
+    end
     init_round_robin(config)
   end
 
@@ -42,9 +62,10 @@ defmodule Cpc do
   end
 
   def init_mnesia() do
-    options_downloadspeed = [attributes: [:url, :content_length, :start_time, :diff_time],
-                             disc_copies: [node()],
-                             type: :bag
+    options_downloadspeed = [
+      attributes: [:url, :content_length, :start_time, :diff_time],
+      disc_copies: [node()],
+      type: :bag
     ]
     create_table(DownloadSpeed, options_downloadspeed)
     create_table(ContentLength, [attributes: [:path, :content_length], disc_copies: [node()]])

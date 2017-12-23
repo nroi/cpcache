@@ -17,7 +17,8 @@ defmodule Cpc.ArchSupervisor do
     end
     children = [
       worker(Cpc.Serializer, []),
-      worker(Cpc.Listener, [])
+      worker(Cpc.Listener, []),
+      worker(Cpc.MirrorSelector, [])
     ]
     supervise(children, strategy: :one_for_one)
   end

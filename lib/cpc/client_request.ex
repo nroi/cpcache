@@ -4,6 +4,7 @@ defmodule Cpc.ClientRequest do
   alias Cpc.ClientRequest, as: CR
   alias Cpc.Filewatcher
   alias Cpc.Utils
+  alias Cpc.MirrorSelector
   require Logger
   use GenServer
   defstruct sock: nil,
@@ -39,7 +40,7 @@ defmodule Cpc.ClientRequest do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, "pkg")
                 end
-    [{:mirrors, [mirror | _]}] = :ets.lookup(:cpc_config, :mirrors)
+    {:ok, mirror} = MirrorSelector.get(0)
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -185,25 +186,9 @@ defmodule Cpc.ClientRequest do
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
   def mirror_uri(uri, round_robin) do
-    mirror = random_mirror(round_robin)
+    # TODO use a more sophisticated strategy instead of just getting the first (zeroth) mirror.
+    {:ok, mirror} = MirrorSelector.get(0)
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
-  end
-
-  # Returns a mirror. round_robin should be set to true if
-  # a new mirror should be chosen afterwards.
-  def random_mirror(round_robin) do
-    index = case {round_robin, :ets.lookup(:cpc_state, :round_robin)} do
-              {true, [{:round_robin, {index, num_mirrors}}]} ->
-                new_idx = rem(index + 1, num_mirrors)
-                Logger.debug "Insert new index for round robin: #{inspect new_idx}"
-                :ets.insert(:cpc_state, {:round_robin, {new_idx, num_mirrors}})
-                index
-              {false, [{:round_robin, {index, _}}]} -> index
-            end
-    case :ets.lookup(:cpc_config, :mirrors) do
-      [{:mirrors, mirrors}] ->
-        Enum.at(mirrors, index)
-    end
   end
 
   # Given the requested URI, fetch the full content-length from the server.
