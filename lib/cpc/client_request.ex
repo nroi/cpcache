@@ -209,9 +209,9 @@ defmodule Cpc.ClientRequest do
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
         uri = mirror_uri(req_uri, false)
-        headers = case :httpc.request(:head, {to_charlist(uri), []},[],[]) do
-                    {:ok, {{_, 200, _}, headers, _}} -> {:ok, Utils.headers_to_lower(headers)}
-                    {:ok, {{_, 404, _}, _headers, _}} -> {:error, :not_found}
+        headers = case :hackney.request(:head, uri) do
+          {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
+          {:ok, 404, _headers} -> {:error, :not_found}
         end
         with {:ok, headers} <- headers do
           content_length = :proplists.get_value("content-length", headers) |> String.to_integer
