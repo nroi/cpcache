@@ -185,9 +185,9 @@ defmodule Cpc.ClientRequest do
   end
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
-  def mirror_uri(uri, round_robin) do
+  def mirror_uri(uri, n) when is_number(n) do
     # TODO use a more sophisticated strategy instead of just getting the first (zeroth) mirror.
-    {:ok, mirror} = MirrorSelector.get(0)
+    {:ok, mirror} = MirrorSelector.get(n)
     mirror |> String.replace_suffix("/", "") |> Path.join(uri)
   end
 
@@ -208,7 +208,7 @@ defmodule Cpc.ClientRequest do
         {:ok, content_length}
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        uri = mirror_uri(req_uri, false)
+        uri = mirror_uri(req_uri, 0)
         headers = case :hackney.request(:head, uri) do
           {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
           {:ok, 404, _headers} -> {:error, :not_found}
@@ -226,7 +226,7 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(uri, true)
+    url = mirror_uri(uri, 0)
     {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
     receive do
       {:content_length, content_length} ->
@@ -252,7 +252,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    url = mirror_uri(uri, true)
+    url = mirror_uri(uri, 0)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -340,7 +340,7 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        url = mirror_uri(uri, true)
+        url = mirror_uri(uri, 0)
         {:ok, pid} = Cpc.Downloader.start_link(
           url, filename, self(), start_http_from_byte)
         receive do
