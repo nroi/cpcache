@@ -12,6 +12,7 @@ defmodule Cpc.ClientRequest do
             action: nil,
             downloader_pid: nil,
             timer_ref: nil,
+            num_attempts: 0, # how many unsuccessful attempts have been made to serve the GET request
             header_fields: [], # the unchanged headers, in the form we received them
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
@@ -224,9 +225,9 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  defp serve_via_http(filename, state, uri) do
+  defp serve_via_http(filename, state = %CR{num_attempts: n}, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(uri, 0)
+    url = mirror_uri(uri, n)
     {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
     receive do
       {:content_length, content_length} ->
@@ -247,7 +248,7 @@ defmodule Cpc.ClientRequest do
         :ok = File.rm(filename)
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
-        {:noreply, %{state | sent_header: true, action: :recv_header}}
+        {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
     end
   end
 
@@ -298,7 +299,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | sent_header: true, action: action}}
   end
 
-  defp serve_via_cache_and_http(state, filename, uri) do
+  defp serve_via_cache_and_http(state = %CR{num_attempts: n}, filename, uri) do
     # A partial file already exists on the filesystem, but this file was saved in a previous
     # download process that did not finish -- the file is not in the process of being downloaded.
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
@@ -340,9 +341,8 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        url = mirror_uri(uri, 0)
-        {:ok, pid} = Cpc.Downloader.start_link(
-          url, filename, self(), start_http_from_byte)
+        url = mirror_uri(uri, n)
+        {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
             file = File.open!(filename, [:read, :raw])
@@ -360,13 +360,13 @@ defmodule Cpc.ClientRequest do
             reply_header = header_from_code(404)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            {:noreply, %{state | sent_header: true, action: :recv_header}}
+            {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
         end
       {:error, :not_found} ->
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        {:noreply, %{state | sent_header: true, action: :recv_header}}
+        {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
     end
   end
 
@@ -386,6 +386,7 @@ defmodule Cpc.ClientRequest do
       raise @serializer_timeout
     end
   end
+
   def handle_info({:http, _, {:http_request, :GET, {:abs_path, "/"}, _}},
                   state = %CR{action: :recv_header}) do
     :ok = :inet.setopts(state.sock, active: :once)
