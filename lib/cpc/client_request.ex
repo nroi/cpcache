@@ -12,6 +12,8 @@ defmodule Cpc.ClientRequest do
             action: nil,
             downloader_pid: nil,
             timer_ref: nil,
+            # TODO do we really need to carry this around in the CR datastructure? this variable
+            # is currently used only for a single method, so perhaps we can remove this.
             num_attempts: 0, # how many unsuccessful attempts have been made to serve the GET request
             header_fields: [], # the unchanged headers, in the form we received them
             headers: %{}, # a map containing the relevant data extracted from above headers
@@ -187,9 +189,10 @@ defmodule Cpc.ClientRequest do
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
   def mirror_uri(uri, n) when is_number(n) do
-    # TODO use a more sophisticated strategy instead of just getting the first (zeroth) mirror.
-    {:ok, mirror} = MirrorSelector.get(n)
-    mirror |> String.replace_suffix("/", "") |> Path.join(uri)
+    with {:ok, mirror} <- MirrorSelector.get(n) do
+      result = mirror |> String.replace_suffix("/", "") |> Path.join(uri)
+      {:ok, result}
+    end
   end
 
   # Given the requested URI, fetch the full content-length from the server.
@@ -209,7 +212,8 @@ defmodule Cpc.ClientRequest do
         {:ok, content_length}
       :not_found ->
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        uri = mirror_uri(req_uri, 0)
+        # TODO don't just assume everythings going to be :ok
+        {:ok, uri} = mirror_uri(req_uri, 0)
         headers = case :hackney.request(:head, uri) do
           {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
           {:ok, 404, _headers} -> {:error, :not_found}
@@ -227,33 +231,43 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_http(filename, state = %CR{num_attempts: n}, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    url = mirror_uri(uri, n)
-    {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
-    receive do
-      {:content_length, content_length} ->
-        reply_header = header(content_length, state.headers.range_start)
-        :ok = :gen_tcp.send(state.sock, reply_header)
-        _ = Logger.debug "Sent header: #{reply_header}"
-        file = File.open!(filename, [:read, :raw])
-        start_size = case state.headers.range_start do
-          nil -> 0
-          rs  -> rs
-        end
-        {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
-        action = {:filewatch, {file, filename}, content_length, 0}
-        {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
-      :not_found ->
+    # TODO don't just assume everythings going to be :ok
+    case mirror_uri(uri, n) do
+      {:error, "No further mirrors"} ->
+        # TODO don't pattern match against string, use an atom instead.
         _ = Logger.debug "Remove file #{filename}."
         # The empty file was previously created by Cpc.Serializer.
         :ok = File.rm(filename)
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
-        {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
+        {:noreply, %{state | sent_header: true, action: :recv_header}}
+      {:ok, url} ->
+        {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
+        receive do
+          {:content_length, content_length} ->
+            reply_header = header(content_length, state.headers.range_start)
+            :ok = :gen_tcp.send(state.sock, reply_header)
+            _ = Logger.debug "Sent header: #{reply_header}"
+            file = File.open!(filename, [:read, :raw])
+            start_size = case state.headers.range_start do
+              nil -> 0
+              rs  -> rs
+            end
+            {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
+            action = {:filewatch, {file, filename}, content_length, 0}
+            {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
+          :not_found ->
+            _ = Logger.warn "Remote mirror returned 404: Try next one."
+            # TODO we still haven't tested if it works when the first few mirrors don't have the file,
+            # but one mirror does have the file.
+            serve_via_http(filename, %{state | num_attempts: n + 1}, uri)
+        end
     end
   end
 
   defp serve_package_via_redirect(state, uri) do
-    url = mirror_uri(uri, 0)
+    # TODO don't just assume everythings going to be :ok
+    {:ok, url} = mirror_uri(uri, 0)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -341,7 +355,8 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        url = mirror_uri(uri, n)
+        # TODO don't just assume everythings going to be :ok
+        {:ok, url} = mirror_uri(uri, n)
         {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
