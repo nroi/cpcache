@@ -12,9 +12,6 @@ defmodule Cpc.ClientRequest do
             action: nil,
             downloader_pid: nil,
             timer_ref: nil,
-            # TODO do we really need to carry this around in the CR datastructure? this variable
-            # is currently used only for a single method, so perhaps we can remove this.
-            num_attempts: 0, # how many unsuccessful attempts have been made to serve the GET request
             header_fields: [], # the unchanged headers, in the form we received them
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
@@ -229,10 +226,14 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  defp serve_via_http(filename, state = %CR{num_attempts: n}, uri) do
+  defp serve_via_http(filename, state, uri) do
+    serve_via_http(filename, state, uri, 0)
+  end
+
+  defp serve_via_http(filename, state, uri, num_attempts) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    # TODO don't just assume everythings going to be :ok
-    case mirror_uri(uri, n) do
+    # TODO don't just assume everything's going to be :ok
+    case mirror_uri(uri, num_attempts) do
       {:error, "No further mirrors"} ->
         # TODO don't pattern match against string, use an atom instead.
         _ = Logger.debug "Remove file #{filename}."
@@ -260,13 +261,13 @@ defmodule Cpc.ClientRequest do
             _ = Logger.warn "Remote mirror returned 404: Try next one."
             # TODO we still haven't tested if it works when the first few mirrors don't have the file,
             # but one mirror does have the file.
-            serve_via_http(filename, %{state | num_attempts: n + 1}, uri)
+            serve_via_http(filename, state, uri, num_attempts + 1)
         end
     end
   end
 
   defp serve_package_via_redirect(state, uri) do
-    # TODO don't just assume everythings going to be :ok
+    # TODO don't just assume everything's going to be :ok
     {:ok, url} = mirror_uri(uri, 0)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
@@ -313,7 +314,11 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | sent_header: true, action: action}}
   end
 
-  defp serve_via_cache_and_http(state = %CR{num_attempts: n}, filename, uri) do
+  defp serve_via_cache_and_http(state, filename, uri) do
+    serve_via_cache_and_http(state, filename, uri, 0)
+  end
+
+  defp serve_via_cache_and_http(state, filename, uri, num_attempts) do
     # A partial file already exists on the filesystem, but this file was saved in a previous
     # download process that did not finish -- the file is not in the process of being downloaded.
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
@@ -355,8 +360,8 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        # TODO don't just assume everythings going to be :ok
-        {:ok, url} = mirror_uri(uri, n)
+        # TODO don't just assume everything's going to be :ok
+        {:ok, url} = mirror_uri(uri, num_attempts)
         {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
@@ -375,13 +380,16 @@ defmodule Cpc.ClientRequest do
             reply_header = header_from_code(404)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
-            {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
+            # TODO retry with a new mirror, just like it's done in  serve_via_http
+            {:noreply, %{state | sent_header: true, action: :recv_header}}
         end
       {:error, :not_found} ->
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
         _ = Logger.debug "Sent header: #{reply_header}"
-        {:noreply, %{state | sent_header: true, action: :recv_header, num_attempts: n + 1}}
+        # TODO what are we supposed to do if we can't fetch the content length? Probably the same
+        # as when we can't successfully serve the GET request, i.e., try again with mirror n + 1.
+        {:noreply, %{state | sent_header: true, action: :recv_header}}
     end
   end
 
