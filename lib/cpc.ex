@@ -25,13 +25,15 @@ defmodule Cpc do
             "ipv4" => ipv4,
             "ipv6" => ipv6,
             "min_score" => min_score,
-            "timeout" => timeout} ->
+            "timeout" => timeout,
+            "test_interval" => test_interval} ->
               map = %{
                 https_required: https_required,
                 ipv4: ipv4,
                 ipv6: ipv6,
                 min_score: min_score,
-                timeout: timeout
+                timeout: timeout,
+                test_interval: test_interval
               }
               :ets.insert(:cpc_config, {:mirror_selection, {:auto, map}})
         end

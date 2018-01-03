@@ -4,51 +4,52 @@ defmodule Cpc.MirrorSelector do
   @json_path "https://www.archlinux.org/mirrors/status/json/"
   @retry_after 5000
 
+  # The module used to test the latency of all available mirrors in order to sort them and provide a
+  # selection of low-latency mirrors.
+
   def start_link() do
+    GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+  end
+
+  def init(nil) do
+    # Start with the predefined mirrors. We will add "better" mirrors later, but for now, we want to
+    # have some mirrors available in case a mirror is requested before the process to find the best
+    # mirrors has completed.
     [mirrors: predefined] = :ets.lookup(:cpc_config, :mirrors)
-    state = {{:sorted, []}, {:predefined, predefined}}
-    GenServer.start_link(__MODULE__, state, name: __MODULE__)
-  end
-
-  def init(state) do
+    renew_interval = case :ets.lookup(:cpc_config, :mirror_selection) do
+      [mirror_selection: {:auto, %{test_interval: -1}}] ->
+        :never
+      [mirror_selection: {:auto, %{test_interval: hours}}] when is_number(hours) ->
+        _ = Logger.debug "resend after #{hours} hours."
+        hours * 60 * 60 * 1000
+      _ ->
+        :never
+    end
+    :ets.insert(:cpc_state, {:mirrors, predefined})
     send self(), :init
-    {:ok, state}
+    {:ok, renew_interval}
   end
 
-  defp get_from(mirrors, n) do
+  def get(n) when is_integer(n) do
+    [mirrors: mirrors] = :ets.lookup(:cpc_state, :mirrors)
     case Enum.at(mirrors, n) do
       nil -> {:error, "No further mirrors"}
       mirror -> {:ok, mirror}
     end
   end
 
-
-  def get(n) when is_number(n) do
-    GenServer.call(__MODULE__, {:get, n})
-  end
-
-  def handle_call({:get, _}, _from, state = {{:sorted, []}, {:predefined, []}}) do
-    {:reply, {:error, "No mirrors available"}, state}
-  end
-
-  def handle_call({:get, n}, _from, state = {{:sorted, sorted = [_|_]}, {:predefined, _}}) do
-    # TODO we're basically using this GenServer as a database, which is stupid: Instead, just put
-    # all "dynamic" mirrors followed by all "static" mirrors in a list and save it in an ETS table.
-    # the mirrors can then be fetched without having to call this GenServer. this also solves the
-    # problem that, when this process is busy sorting the mirrors, answers will be delayed.
-    {:reply, get_from(sorted, n), state}
-  end
-
-  def handle_call({:get, n}, _from, state = {{:sorted, []}, {:predefined, predef = [_|_]}}) do
-    {:reply, get_from(predef, n), state}
-  end
-
-  def handle_info(:init, {{:sorted, []}, {:predefined, predefined}}) do
+  def handle_info(:init, renew_interval) do
     case sorted_mirrors() do
       {:ok, sorted} ->
-        :ets.insert(:cpc_state, {:mirrors, sorted})
+        [mirrors: predefined] = :ets.lookup(:cpc_config, :mirrors)
+        :ets.insert(:cpc_state, {:mirrors, sorted ++ predefined})
         Logger.debug "Mirrors sorted: #{inspect sorted}"
-        {:noreply, {{:sorted, sorted}, {:predefined, predefined}}}
+        case renew_interval do
+          :never -> :ok
+          millisecs when is_integer(millisecs) ->
+            :erlang.send_after(millisecs, self(), :init)
+        end
+        {:noreply, nil}
       error ->
         Logger.warn "Unable to sort mirrors: #{inspect error}"
         Logger.warn "Retry in #{@retry_after} milliseconds"
