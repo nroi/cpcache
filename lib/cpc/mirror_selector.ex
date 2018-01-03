@@ -32,6 +32,10 @@ defmodule Cpc.MirrorSelector do
   end
 
   def handle_call({:get, n}, _from, state = {{:sorted, sorted = [_|_]}, {:predefined, _}}) do
+    # TODO we're basically using this GenServer as a database, which is stupid: Instead, just put
+    # all "dynamic" mirrors followed by all "static" mirrors in a list and save it in an ETS table.
+    # the mirrors can then be fetched without having to call this GenServer. this also solves the
+    # problem that, when this process is busy sorting the mirrors, answers will be delayed.
     {:reply, get_from(sorted, n), state}
   end
 
