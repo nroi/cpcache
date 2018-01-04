@@ -185,11 +185,25 @@ defmodule Cpc.ClientRequest do
   end
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
-  def mirror_uri(uri, n) when is_number(n) do
+  defp mirror_uri(uri, n) when is_integer(n) do
     with {:ok, mirror} <- MirrorSelector.get(n) do
       result = mirror |> String.replace_suffix("/", "") |> Path.join(uri)
       {:ok, result}
     end
+  end
+
+  def headers_from(uri, n) when is_integer(n) do
+    with {:ok, mirror_uri} <- mirror_uri(uri, n) do
+      case :hackney.request(:head, mirror_uri) do
+        {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
+        {:ok, 404, _headers} ->
+          headers_from(uri, n + 1)
+      end
+    end
+  end
+
+  def headers_from(uri) do
+    headers_from(uri, 0)
   end
 
   # Given the requested URI, fetch the full content-length from the server.
@@ -208,14 +222,9 @@ defmodule Cpc.ClientRequest do
         _ = Logger.debug "Retrieve content-length for #{req_uri} from cache."
         {:ok, content_length}
       :not_found ->
+        Logger.warn "Fetch content length"
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        # TODO don't just assume everythings going to be :ok
-        {:ok, uri} = mirror_uri(req_uri, 0)
-        headers = case :hackney.request(:head, uri) do
-          {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
-          {:ok, 404, _headers} -> {:error, :not_found}
-        end
-        with {:ok, headers} <- headers do
+        with {:ok, headers} <- headers_from(req_uri) do
           content_length = :proplists.get_value("content-length", headers) |> String.to_integer
           {:atomic, :ok} = :mnesia.transaction(fn ->
             :mnesia.write({ContentLength, Path.basename(req_uri), content_length})
