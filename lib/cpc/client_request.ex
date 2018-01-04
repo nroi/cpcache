@@ -218,7 +218,7 @@ defmodule Cpc.ClientRequest do
         with {:ok, headers} <- headers do
           content_length = :proplists.get_value("content-length", headers) |> String.to_integer
           {:atomic, :ok} = :mnesia.transaction(fn ->
-            :mnesia.write({ContentLength, req_uri, content_length})
+            :mnesia.write({ContentLength, Path.basename(req_uri), content_length})
           end)
           _ = Logger.debug "Saved to database: content-length #{content_length} for #{req_uri}"
           {:ok, content_length}
