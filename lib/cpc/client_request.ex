@@ -16,6 +16,7 @@ defmodule Cpc.ClientRequest do
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
 
+  # TODO the whole uri / url usage is messed up and inconsistent.
 
   def start_link(sock) do
     GenServer.start_link(__MODULE__, init_state(sock))
@@ -276,7 +277,6 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    # TODO don't just assume everything's going to be :ok
     {:ok, url} = mirror_uri(uri, 0)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
