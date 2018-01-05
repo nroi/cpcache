@@ -37,12 +37,12 @@ defmodule Cpc.ClientRequest do
     "Connection closed by client during data transfer. File #{filename} is incomplete."
   end
 
-  defp get_filename(uri) do
+  defp get_filename(uri_reference) do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, "pkg")
                 end
     {:ok, mirror} = MirrorSelector.get(0)
-    filename = Path.join(cache_dir, uri)
+    filename = Path.join(cache_dir, uri_reference)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
     is_database = String.ends_with?(basename, ".db")
@@ -53,7 +53,7 @@ defmodule Cpc.ClientRequest do
           {:error, :enoent} -> {false, false}
           {:ok, %File.Stat{size: 0}} -> {false, false}
           {:ok, %File.Stat{size: size}} ->
-            case content_length(uri) do
+            case content_length(uri_reference) do
               {:ok, ^size} ->             {true, true}
               {:ok, cl} when cl > size -> {true, false}
               {:error, :not_found} ->
@@ -68,7 +68,7 @@ defmodule Cpc.ClientRequest do
     end
     case {is_database, complete_file_exists, partial_file_exists} do
       {true, _, _} ->
-        {:database, Path.join(mirror, uri)}
+        {:database, Path.join(mirror, uri_reference)}
       {false, false, false} ->
         {:not_found, Path.join([dirname, basename])}
       {false, true, _} ->
@@ -187,6 +187,7 @@ defmodule Cpc.ClientRequest do
 
   # Given the URI requested by the user, returns the URI we need to send our HTTP request to
   defp mirror_uri(uri, n) when is_integer(n) do
+    _ = Logger.debug "URI: #{inspect uri}"
     with {:ok, mirror} <- MirrorSelector.get(n) do
       result = mirror |> String.replace_suffix("/", "") |> Path.join(uri)
       {:ok, result}
@@ -195,6 +196,7 @@ defmodule Cpc.ClientRequest do
 
   def headers_from(uri, n) when is_integer(n) do
     with {:ok, mirror_uri} <- mirror_uri(uri, n) do
+      _ = Logger.warn "Sending HEAD request to #{uri}"
       case :hackney.request(:head, mirror_uri) do
         {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
         {:ok, 404, _headers} ->
@@ -256,6 +258,9 @@ defmodule Cpc.ClientRequest do
         {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
         receive do
           {:content_length, content_length} ->
+            {:atomic, :ok} = :mnesia.transaction(fn ->
+              :mnesia.write({ContentLength, Path.basename(uri), content_length})
+            end)
             reply_header = header(content_length, state.headers.range_start)
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug "Sent header: #{reply_header}"
