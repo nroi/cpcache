@@ -185,28 +185,27 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
-  # Given the URI requested by the user, returns the URI we need to send our HTTP request to
-  defp mirror_uri(uri, n) when is_integer(n) do
-    _ = Logger.debug "URI: #{inspect uri}"
-    with {:ok, mirror} <- MirrorSelector.get(n) do
-      result = mirror |> String.replace_suffix("/", "") |> Path.join(uri)
+  # Given the URI requested by the user, returns the URL we need to send our HTTP request to
+  defp mirror_uri(request_url, n) when is_integer(n) do
+    with {:ok, mirror_url} <- MirrorSelector.get(n) do
+      result = mirror_url |> String.replace_suffix("/", "") |> Path.join(request_url)
       {:ok, result}
     end
   end
 
-  def headers_from(uri, n) when is_integer(n) do
-    with {:ok, mirror_uri} <- mirror_uri(uri, n) do
-      _ = Logger.warn "Sending HEAD request to #{uri}"
-      case :hackney.request(:head, mirror_uri) do
+  def headers_from(request_url, n) when is_integer(n) do
+    with {:ok, mirror_url} <- mirror_uri(request_url, n) do
+      _ = Logger.warn "Sending HEAD request to #{request_url}"
+      case :hackney.request(:head, mirror_url) do
         {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
         {:ok, 404, _headers} ->
-          headers_from(uri, n + 1)
+          headers_from(request_url, n + 1)
       end
     end
   end
 
-  def headers_from(uri) do
-    headers_from(uri, 0)
+  def headers_from(request_url) do
+    headers_from(request_url, 0)
   end
 
   # Given the requested URI, fetch the full content-length from the server.
