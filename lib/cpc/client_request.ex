@@ -271,8 +271,8 @@ defmodule Cpc.ClientRequest do
             {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
             action = {:filewatch, {file, filename}, content_length, 0}
             {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
-          :not_found ->
-            _ = Logger.warn "Remote mirror returned 404: Try next one."
+          {:error, reason} ->
+            _ = Logger.warn "Failed to serve request: #{inspect reason}"
             # TODO we still haven't tested if it works when the first few mirrors don't have the file,
             # but one mirror does have the file.
             serve_via_http(filename, state, uri, num_attempts + 1)

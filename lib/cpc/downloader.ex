@@ -134,15 +134,13 @@ defmodule Cpc.Downloader do
     measure_speed(request, content_length)
   end
 
-  def handle_failure(404, client, request) do
-    send request.receiver, :not_found
+  def handle_failure(reason, client, request) do
     :ok = :hackney.close(client)
-    Logger.warn "Download of URL #{request.url} has failed: 404"
+    handle_failure(reason, request)
   end
-  def handle_failure(status, client, request) do
-    :ok = :hackney.close(client)
-    Logger.warn "Download of URL #{request.url} has failed: #{status}"
-    # TODO what to do with other status codes? the receiver should be informed.
+  def handle_failure(reason, request) do
+    send request.receiver, {:error, reason}
+    Logger.warn "Download of URL #{request.url} has failed: #{reason}"
   end
 
   def start_link(url, save_to, receiver, start_from \\ nil) do
@@ -202,6 +200,8 @@ defmodule Cpc.Downloader do
           status ->
             handle_failure(status, client, request)
         end
+      {:error, reason} ->
+        handle_failure(reason, request)
     end
   end
 
