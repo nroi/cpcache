@@ -172,6 +172,9 @@ defmodule Cpc.Downloader do
                 0 -> []
                 rs -> [{"Range", "bytes=#{rs}-"}]
               end
+    # checking for IPv6 support will increase latency in some cases. Also, it has little use for
+    # those with proper dual stack (i.e., anything other than dual stack lite). Perhaps we should
+    # just remove this.
     opts = if supports_ipv6(request.url) do
       _ = Logger.debug "Use IPv6 for url #{request.url}"
       [connect_options: [:inet6]]
