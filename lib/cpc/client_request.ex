@@ -249,7 +249,6 @@ defmodule Cpc.ClientRequest do
     _ = Logger.info "Serve file #{filename} via HTTP."
     # TODO don't just assume everything's going to be :ok
     urls = mirror_uris(uri)
-    # def try_all([url | fallbacks], save_to, start_from \\ nil) do
     case Cpc.Downloader.try_all(urls, filename, 0) do
       {:ok, %{content_length: content_length, downloader_pid: pid}} ->
         {:atomic, :ok} = :mnesia.transaction(fn ->
@@ -340,7 +339,14 @@ defmodule Cpc.ClientRequest do
       rs  ->
         cond do
           rs <  filesize -> {:file, state.headers.range_start}
-          rs >= filesize -> {:http, state.headers.range_start}
+          rs == filesize -> {:http, state.headers.range_start}
+          rs > filesize ->
+            # TODO notice that in this case, we need to make sure how to maintain the following
+            # invariant: If a file is stored by cpcache, for 0 <= n <= filesize, the first n bytes
+            # of the locally stored file always correspond to the first n bytes of the file stored
+            # on a remote mirror.
+            # (in other words: while files may be incomplete, they are always stored in sequence).
+            raise "Not implemented yet"
         end
     end
     _ = Logger.debug "Start of requested content-range: #{inspect state.headers.range_start}"
