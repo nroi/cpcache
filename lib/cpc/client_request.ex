@@ -187,10 +187,18 @@ defmodule Cpc.ClientRequest do
 
   # Given the URI requested by the user, returns the URL we need to send our HTTP request to
   defp mirror_uri(request_url, n) when is_integer(n) do
+    # TODO reconsider if we still need this function, or if we should always use get_all
+    # since we have introduced the Cpc.Downloader.try_all function.
     with {:ok, mirror_url} <- MirrorSelector.get(n) do
       result = mirror_url |> String.replace_suffix("/", "") |> Path.join(request_url)
       {:ok, result}
     end
+  end
+
+  defp mirror_uris(request_url) do
+    Enum.map(MirrorSelector.get_all, fn mirror_url ->
+      mirror_url |> String.replace_suffix("/", "") |> Path.join(request_url)
+    end)
   end
 
   def headers_from(request_url, n) when is_integer(n) do
@@ -238,45 +246,34 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_via_http(filename, state, uri) do
-    serve_via_http(filename, state, uri, 0)
-  end
-
-  defp serve_via_http(filename, state, uri, num_attempts) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     # TODO don't just assume everything's going to be :ok
-    case mirror_uri(uri, num_attempts) do
-      {:error, "No further mirrors"} ->
-        # TODO don't pattern match against string, use an atom instead.
+    urls = mirror_uris(uri)
+    # def try_all([url | fallbacks], save_to, start_from \\ nil) do
+    case Cpc.Downloader.try_all(urls, filename, 0) do
+      {:ok, %{content_length: content_length, downloader_pid: pid}} ->
+        {:atomic, :ok} = :mnesia.transaction(fn ->
+          :mnesia.write({ContentLength, Path.basename(uri), content_length})
+        end)
+        reply_header = header(content_length, state.headers.range_start)
+        :ok = :gen_tcp.send(state.sock, reply_header)
+        _ = Logger.debug "Sent header: #{reply_header}"
+        file = File.open!(filename, [:read, :raw])
+        start_size = case state.headers.range_start do
+          nil -> 0
+          rs  -> rs
+        end
+        {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
+        action = {:filewatch, {file, filename}, content_length, 0}
+        {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
+      {:error, reason} ->
+        _ = Logger.warn "Failed to download file: #{inspect reason}"
         _ = Logger.debug "Remove file #{filename}."
         # The empty file was previously created by Cpc.Serializer.
         :ok = File.rm(filename)
         reply_header = header_from_code(404)
         :ok = :gen_tcp.send(state.sock, reply_header)
         {:noreply, %{state | sent_header: true, action: :recv_header}}
-      {:ok, url} ->
-        {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), 0)
-        receive do
-          {:content_length, content_length} ->
-            {:atomic, :ok} = :mnesia.transaction(fn ->
-              :mnesia.write({ContentLength, Path.basename(uri), content_length})
-            end)
-            reply_header = header(content_length, state.headers.range_start)
-            :ok = :gen_tcp.send(state.sock, reply_header)
-            _ = Logger.debug "Sent header: #{reply_header}"
-            file = File.open!(filename, [:read, :raw])
-            start_size = case state.headers.range_start do
-              nil -> 0
-              rs  -> rs
-            end
-            {:ok, _} = Filewatcher.start_link(self(), filename, content_length, start_size)
-            action = {:filewatch, {file, filename}, content_length, 0}
-            {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
-          {:error, reason} ->
-            _ = Logger.warn "Failed to serve request: #{inspect reason}"
-            # TODO we still haven't tested if it works when the first few mirrors don't have the file,
-            # but one mirror does have the file.
-            serve_via_http(filename, state, uri, num_attempts + 1)
-        end
     end
   end
 

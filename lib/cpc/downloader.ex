@@ -13,6 +13,34 @@ defmodule Cpc.Downloader do
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
+  #
+
+  def try_all([url | fallbacks], save_to, start_from \\ nil) do
+    {:ok, pid} = start_link(url, save_to, self(), start_from)
+    receive do
+      {:content_length, cl} ->
+        {:ok, %{content_length: cl, downloader_pid: pid}}
+      err = {:error, _reason} ->
+        case fallbacks do
+          [] ->
+            err
+          _ ->
+            try_all(fallbacks, save_to, start_from)
+        end
+    end
+  end
+
+  def start_link(url, save_to, receiver, start_from \\ nil) do
+    GenServer.start_link(__MODULE__, {to_charlist(url),
+                                      to_charlist(save_to),
+                                      receiver,
+                                      start_from})
+  end
+
+  def init({url, save_to, receiver, start_from}) do
+    send self(), :init
+    {:ok, {url, save_to, receiver, start_from}}
+  end
 
   def bandwidth_to_human_readable(bytes, microseconds) do
     bytes_per_second = bytes / (microseconds / 1000000)
@@ -61,6 +89,7 @@ defmodule Cpc.Downloader do
     {:atomic, :ok} = :mnesia.transaction(fn ->
       :mnesia.write({DownloadSpeed, host, content_length, request.start_time, diff})
     end)
+    :ok
   end
 
   def supports_ipv6(url) do
@@ -130,8 +159,9 @@ defmodule Cpc.Downloader do
       :mnesia.write({ContentLength, {Path.basename(path)}, full_content_length})
     end)
     {:ok, file} = File.open(request.save_to, [:append, :raw])
-    download(client, file)
-    measure_speed(request, content_length)
+    with :ok <- download(client, file) do
+      measure_speed(request, content_length)
+    end
   end
 
   def handle_failure(reason, client, request) do
@@ -140,19 +170,7 @@ defmodule Cpc.Downloader do
   end
   def handle_failure(reason, request) do
     send request.receiver, {:error, reason}
-    Logger.warn "Download of URL #{request.url} has failed: #{reason}"
-  end
-
-  def start_link(url, save_to, receiver, start_from \\ nil) do
-    GenServer.start_link(__MODULE__, {to_charlist(url),
-                                      to_charlist(save_to),
-                                      receiver,
-                                      start_from})
-  end
-
-  def init({url, save_to, receiver, start_from}) do
-    send self(), :init
-    {:ok, {url, save_to, receiver, start_from}}
+    :ok = Logger.warn "Download of URL #{request.url} has failed: #{reason}"
   end
 
   def download(client, file) do
@@ -163,6 +181,8 @@ defmodule Cpc.Downloader do
         download(client, file)
       :done ->
         :ok = File.close(file)
+      m = {:error, _reason} ->
+        m
     end
   end
 

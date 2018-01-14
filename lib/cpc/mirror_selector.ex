@@ -31,11 +31,18 @@ defmodule Cpc.MirrorSelector do
   end
 
   def get(n) when is_integer(n) do
+    # TODO reconsider if we still need this function, or if we should always use get_all
+    # since we have introduced the Cpc.Downloader.try_all function.
     [mirrors: mirrors] = :ets.lookup(:cpc_state, :mirrors)
     case Enum.at(mirrors, n) do
       nil -> {:error, "No further mirrors"}
       mirror -> {:ok, mirror}
     end
+  end
+
+  def get_all() do
+    [mirrors: mirrors] = :ets.lookup(:cpc_state, :mirrors)
+    mirrors
   end
 
   def handle_info(:init, renew_interval) do
