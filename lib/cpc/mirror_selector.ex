@@ -20,7 +20,7 @@ defmodule Cpc.MirrorSelector do
       [mirror_selection: {:auto, %{test_interval: -1}}] ->
         :never
       [mirror_selection: {:auto, %{test_interval: hours}}] when is_number(hours) ->
-        _ = Logger.debug "resend after #{hours} hours."
+        _ = Logger.debug "Run new test after #{hours} hours have expired."
         hours * 60 * 60 * 1000
       _ ->
         :never
@@ -76,7 +76,10 @@ defmodule Cpc.MirrorSelector do
   end
 
   def filter_mirrors(mirrors) do
-    for %{"protocol" => "https", "url" => url, "score" => score} <- mirrors, score < 2.5, do: url
+    # TODO make use of the settings from the TOML file.
+    for %{"protocol" => "https", "url" => url, "score" => score} <- mirrors, score < 2.5 && Cpc.Downloader.supports_ipv6(url) do
+      url
+    end
   end
 
   def fetch_latencies(_url, mirror, i, num_iterations, latencies, _timeout) when i == num_iterations do
