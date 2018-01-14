@@ -16,8 +16,6 @@ defmodule Cpc.ClientRequest do
             headers: %{}, # a map containing the relevant data extracted from above headers
             request: nil # GET or POST
 
-  # TODO the whole uri / url usage is messed up and inconsistent.
-
   def start_link(sock) do
     GenServer.start_link(__MODULE__, init_state(sock))
   end
@@ -37,12 +35,12 @@ defmodule Cpc.ClientRequest do
     "Connection closed by client during data transfer. File #{filename} is incomplete."
   end
 
-  defp get_filename(uri_reference) do
+  defp get_filename(uri) do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, "pkg")
                 end
     {:ok, mirror} = MirrorSelector.get(0)
-    filename = Path.join(cache_dir, uri_reference)
+    filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
     is_database = String.ends_with?(basename, ".db")
@@ -53,7 +51,7 @@ defmodule Cpc.ClientRequest do
           {:error, :enoent} -> {false, false}
           {:ok, %File.Stat{size: 0}} -> {false, false}
           {:ok, %File.Stat{size: size}} ->
-            case content_length(uri_reference) do
+            case content_length(uri) do
               {:ok, ^size} ->             {true, true}
               {:ok, cl} when cl > size -> {true, false}
               {:error, :not_found} ->
@@ -68,7 +66,7 @@ defmodule Cpc.ClientRequest do
     end
     case {is_database, complete_file_exists, partial_file_exists} do
       {true, _, _} ->
-        {:database, Path.join(mirror, uri_reference)}
+        {:database, Path.join(mirror, uri)}
       {false, false, false} ->
         {:not_found, Path.join([dirname, basename])}
       {false, true, _} ->
@@ -186,34 +184,34 @@ defmodule Cpc.ClientRequest do
   end
 
   # Given the URI requested by the user, returns the URL we need to send our HTTP request to
-  defp mirror_uri(request_url, n) when is_integer(n) do
+  defp mirror_url(request_uri, n) when is_integer(n) do
     # TODO reconsider if we still need this function, or if we should always use get_all
     # since we have introduced the Cpc.Downloader.try_all function.
     with {:ok, mirror_url} <- MirrorSelector.get(n) do
-      result = mirror_url |> String.replace_suffix("/", "") |> Path.join(request_url)
+      result = mirror_url |> String.replace_suffix("/", "") |> Path.join(request_uri)
       {:ok, result}
     end
   end
 
-  defp mirror_uris(request_url) do
+  defp mirror_urls(request_uri) do
     Enum.map(MirrorSelector.get_all, fn mirror_url ->
-      mirror_url |> String.replace_suffix("/", "") |> Path.join(request_url)
+      mirror_url |> String.replace_suffix("/", "") |> Path.join(request_uri)
     end)
   end
 
-  def headers_from(request_url, n) when is_integer(n) do
-    with {:ok, mirror_url} <- mirror_uri(request_url, n) do
-      _ = Logger.warn "Sending HEAD request to #{request_url}"
+  def headers_from(request_uri, n) when is_integer(n) do
+    with {:ok, mirror_url} <- mirror_url(request_uri, n) do
+      _ = Logger.warn "Sending HEAD request to #{request_uri}"
       case :hackney.request(:head, mirror_url) do
         {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
         {:ok, 404, _headers} ->
-          headers_from(request_url, n + 1)
+          headers_from(request_uri, n + 1)
       end
     end
   end
 
-  def headers_from(request_url) do
-    headers_from(request_url, 0)
+  def headers_from(request_uri) do
+    headers_from(request_uri, 0)
   end
 
   # Given the requested URI, fetch the full content-length from the server.
@@ -248,7 +246,7 @@ defmodule Cpc.ClientRequest do
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
     # TODO don't just assume everything's going to be :ok
-    urls = mirror_uris(uri)
+    urls = mirror_urls(uri)
     case Cpc.Downloader.try_all(urls, filename, 0) do
       {:ok, %{content_length: content_length, downloader_pid: pid}} ->
         {:atomic, :ok} = :mnesia.transaction(fn ->
@@ -277,7 +275,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    {:ok, url} = mirror_uri(uri, 0)
+    {:ok, url} = mirror_url(uri, 0)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -377,7 +375,7 @@ defmodule Cpc.ClientRequest do
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
         # TODO don't just assume everything's going to be :ok
-        {:ok, url} = mirror_uri(uri, num_attempts)
+        {:ok, url} = mirror_url(uri, num_attempts)
         {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->
