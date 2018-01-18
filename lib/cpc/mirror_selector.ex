@@ -56,7 +56,7 @@ defmodule Cpc.MirrorSelector do
           millisecs when is_integer(millisecs) ->
             :erlang.send_after(millisecs, self(), :init)
         end
-        {:noreply, nil}
+        {:noreply, renew_interval}
       error ->
         Logger.warn "Unable to sort mirrors: #{inspect error}"
         Logger.warn "Retry in #{@retry_after} milliseconds"
