@@ -183,35 +183,22 @@ defmodule Cpc.ClientRequest do
     "\r\n"
   end
 
-  # Given the URI requested by the user, returns the URL we need to send our HTTP request to
-  defp mirror_url(request_uri, n) when is_integer(n) do
-    # TODO reconsider if we still need this function, or if we should always use get_all
-    # since we have introduced the Cpc.Downloader.try_all function.
-    with {:ok, mirror_url} <- MirrorSelector.get(n) do
-      result = mirror_url |> String.replace_suffix("/", "") |> Path.join(request_uri)
-      {:ok, result}
-    end
-  end
-
-  defp mirror_urls(request_uri) do
+  def mirror_urls(request_uri) do
     Enum.map(MirrorSelector.get_all, fn mirror_url ->
       mirror_url |> String.replace_suffix("/", "") |> Path.join(request_uri)
     end)
   end
 
-  def headers_from(request_uri, n) when is_integer(n) do
-    with {:ok, mirror_url} <- mirror_url(request_uri, n) do
-      _ = Logger.warn "Sending HEAD request to #{request_uri}"
-      case :hackney.request(:head, mirror_url) do
-        {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
-        {:ok, 404, _headers} ->
-          headers_from(request_uri, n + 1)
-      end
+  def headers_from_url(url) do
+    _ = Logger.warn "Sending HEAD request to #{url}"
+    case :hackney.request(:head, url) do
+      {:ok, 200, headers} -> {:ok, Utils.headers_to_lower(headers)}
+      {:ok, 404, _headers} -> {:error, :not_found}
     end
   end
 
-  def headers_from(request_uri) do
-    headers_from(request_uri, 0)
+  def headers_until_success(request_uri) do
+    Utils.repeat_until_ok(&headers_from_url/1, mirror_urls(request_uri))
   end
 
   # Given the requested URI, fetch the full content-length from the server.
@@ -232,7 +219,7 @@ defmodule Cpc.ClientRequest do
       :not_found ->
         Logger.warn "Fetch content length"
         _ = Logger.debug "Retrieve content-length for #{req_uri} via HTTP HEAD request."
-        with {:ok, headers} <- headers_from(req_uri) do
+        with {:ok, headers} <- headers_until_success(req_uri) do
           content_length = :proplists.get_value("content-length", headers) |> String.to_integer
           {:atomic, :ok} = :mnesia.transaction(fn ->
             :mnesia.write({ContentLength, Path.basename(req_uri), content_length})
@@ -275,7 +262,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_package_via_redirect(state, uri) do
-    {:ok, url} = mirror_url(uri, 0)
+    [url | _] = mirror_urls(uri)
     _ = Logger.info "Serve package via HTTP redirect from #{url}."
     :ok = :gen_tcp.send(state.sock, header_301(url))
     {:noreply, %{state | sent_header: true, action: :recv_header}}
@@ -322,10 +309,6 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_via_cache_and_http(state, filename, uri) do
-    serve_via_cache_and_http(state, filename, uri, 0)
-  end
-
-  defp serve_via_cache_and_http(state, filename, uri, num_attempts) do
     # A partial file already exists on the filesystem, but this file was saved in a previous
     # download process that did not finish -- the file is not in the process of being downloaded.
     # We serve the beginning of the file from the cache, if possible. If the requester requested a
@@ -374,8 +357,9 @@ defmodule Cpc.ClientRequest do
         _ = Logger.warn "File is already fully retrieved by the client."
         {:noreply, %{state | sent_header: true, action: :recv_header}}
       {:ok, _ }->
-        # TODO don't just assume everything's going to be :ok
-        {:ok, url} = mirror_url(uri, num_attempts)
+        # TODO don't just use the first URL, use the fallbacks in case an error occurred during the
+        # first attempt.
+        [url | _] = mirror_urls(uri)
         {:ok, pid} = Cpc.Downloader.start_link(url, filename, self(), start_http_from_byte)
         receive do
           {:content_length, content_length} ->

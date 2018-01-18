@@ -11,4 +11,17 @@ defmodule Cpc.Utils do
     [{:cache_directory, cache_directory}] = :ets.lookup(:cpc_config, :cache_directory)
     Path.join([cache_directory, "wanted_packages"])
   end
+
+  def repeat_until_ok(to_repeat, [arg | []]) do
+    to_repeat.(arg)
+  end
+  def repeat_until_ok(to_repeat, [arg | rest_args]) do
+    case to_repeat.(arg) do
+      result = {:ok, _} ->
+        result
+      _ ->
+        repeat_until_ok(to_repeat, rest_args)
+    end
+  end
+
 end
