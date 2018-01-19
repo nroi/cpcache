@@ -54,7 +54,7 @@ defmodule Cpc.MirrorSelector do
     end
   end
 
-  def get_settings() do
+  def get_mirror_settings() do
     [mirror_selection: {:auto, map}] = :ets.lookup(:cpc_config, :mirror_selection)
     map
   end
@@ -73,8 +73,9 @@ defmodule Cpc.MirrorSelector do
   end
 
   def filter_mirrors(mirrors) do
+    settings = get_mirror_settings()
     # TODO make use of the settings from the TOML file.
-    for %{"protocol" => "https", "url" => url, "score" => score} <- mirrors, score < 2.5 && Cpc.Downloader.supports_ipv6(url) do
+    for %{"protocol" => "https", "url" => url, "score" => score} <- mirrors, score < settings.max_score && Cpc.Downloader.supports_ipv6(url) do
       url
     end
   end
@@ -94,7 +95,7 @@ defmodule Cpc.MirrorSelector do
   def test_mirror(mirror) do
     Logger.debug "test #{inspect mirror}"
     url = "#{mirror}core/os/x86_64/core.db"
-    settings = get_settings()
+    settings = get_mirror_settings()
     fetch_latencies(url, mirror, 0, 5, [], settings.timeout)
   end
 

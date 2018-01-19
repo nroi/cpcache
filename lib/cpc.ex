@@ -24,14 +24,14 @@ defmodule Cpc do
           %{"https_required" => https_required,
             "ipv4" => ipv4,
             "ipv6" => ipv6,
-            "min_score" => min_score,
+            "max_score" => max_score,
             "timeout" => timeout,
             "test_interval" => test_interval} ->
               map = %{
                 https_required: https_required,
                 ipv4: ipv4,
                 ipv6: ipv6,
-                min_score: min_score,
+                max_score: max_score,
                 timeout: timeout,
                 test_interval: test_interval
               }
