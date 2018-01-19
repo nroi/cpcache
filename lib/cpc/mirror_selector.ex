@@ -74,8 +74,28 @@ defmodule Cpc.MirrorSelector do
 
   def filter_mirrors(mirrors) do
     settings = get_mirror_settings()
-    # TODO make use of the settings from the TOML file.
-    for %{"protocol" => "https", "url" => url, "score" => score} <- mirrors, score < settings.max_score && Cpc.Downloader.supports_ipv6(url) do
+    test_ipv4_protocol = fn url ->
+      case settings.ipv4 do
+        true -> Cpc.Downloader.supports_ipv4(url)
+        false -> true
+      end
+    end
+    test_ipv6_protocol = fn url ->
+      case settings.ipv6 do
+        true -> Cpc.Downloader.supports_ipv6(url)
+        false -> true
+      end
+    end
+    test_protocols = fn url ->
+      test_ipv4_protocol.(url) && test_ipv6_protocol.(url)
+    end
+    test_https = fn protocol ->
+      case settings.https_required do
+        true -> protocol == "https"
+        false -> true
+      end
+    end
+      for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors, score <= settings.max_score && test_https.(protocol) && test_protocols.(url) do
       url
     end
   end
@@ -101,7 +121,11 @@ defmodule Cpc.MirrorSelector do
 
   def sorted_mirrors() do
     with {:ok, json} <- json_from_remote() do
-      mirrors = json["urls"]
+      mirrors = Enum.filter(json["urls"], fn
+        %{"protocol" => "http"} -> true
+        %{"protocol" => "https"} -> true
+        %{"protocol" => _} -> false
+      end)
       results = Enum.map(filter_mirrors(mirrors), fn mirror -> test_mirror(mirror) end)
       successes = for {:ok, {url, latency}} <- results, do: {url, latency}
       sorted = Enum.sort_by(successes, fn
