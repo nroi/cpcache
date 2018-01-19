@@ -39,7 +39,7 @@ defmodule Cpc.ClientRequest do
     cache_dir = case :ets.lookup(:cpc_config, :cache_directory) do
                   [{:cache_directory, cd}] -> Path.join(cd, "pkg")
                 end
-    {:ok, mirror} = MirrorSelector.get(0)
+    [mirror | _] = MirrorSelector.get_all()
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
