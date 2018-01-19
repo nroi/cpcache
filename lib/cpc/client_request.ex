@@ -232,7 +232,6 @@ defmodule Cpc.ClientRequest do
 
   defp serve_via_http(filename, state, uri) do
     _ = Logger.info "Serve file #{filename} via HTTP."
-    # TODO don't just assume everything's going to be :ok
     urls = mirror_urls(uri)
     case Cpc.Downloader.try_all(urls, filename, 0) do
       {:ok, %{content_length: content_length, downloader_pid: pid}} ->
