@@ -92,19 +92,23 @@ defmodule Cpc.Downloader do
     :ok
   end
 
-  def supports_ipv6(url) do
+  def supports_ip_protocol(version, url) when version == :ipv4 or version == :ipv6 do
     host = case :http_uri.parse(url) do
       {:ok, {_, _, host, _, _, _}} -> host
     end
     # Rather than just testing if the server has an AAAA record set, we actually want to find out if
     # it successfully replies to a GET request. Experience shows that some servers have their AAAA
     # record set and still won't allow clients to connect via IPv6, e.g. due to connection timeouts.
+    db_name = case version do
+      :ipv4 -> Ipv4Support
+      :ipv6 -> Ipv6Support
+    end
     db_result = :mnesia.transaction(fn ->
-      :mnesia.read({Ipv6Support, host})
+      :mnesia.read({db_name, host})
     end)
     prev_supported = case db_result do
       {:atomic, []} -> :unknown
-      {:atomic, [{Ipv6Support, ^host, {then, supported_then}}]} ->
+      {:atomic, [{^db_name, ^host, {then, supported_then}}]} ->
         now = :os.system_time(:second)
         diff = now - then
         expired = diff >= @validity
@@ -116,19 +120,31 @@ defmodule Cpc.Downloader do
     end
     case prev_supported do
       :unknown ->
-        _ = Logger.debug "Send HEAD request to test for IPv6 support."
-        opts = [connect_options: [:inet6], connect_timeout: 2000]
+        _ = Logger.debug "Send HEAD request to test for #{version} support."
+        address_family = case version do
+          :ipv4 -> :inet
+          :ipv6 -> :inet6
+        end
+        opts = [connect_options: [address_family], connect_timeout: 2000]
         support = case :hackney.request(:head, url, [], "", opts) do
           {:ok, _, _} -> true
           _           -> false
         end
         {:atomic, :ok} = :mnesia.transaction(fn ->
-          :mnesia.write({Ipv6Support, host, {:os.system_time(:second), support}})
+          :mnesia.write({db_name, host, {:os.system_time(:second), support}})
         end)
         support
       false -> false
       true  -> true
     end
+  end
+
+  def supports_ipv6(url) do
+    supports_ip_protocol(:ipv6, url)
+  end
+
+  def supports_ipv4(url) do
+    supports_ip_protocol(:ipv4, url)
   end
 
   def handle_redirect(_headers, _request, 21) do
