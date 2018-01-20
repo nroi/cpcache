@@ -4,40 +4,40 @@ defmodule Cpc do
   @config_path "/etc/cpcache/cpcache.toml"
 
   defp init_round_robin(config) do
-    num_mirrors = Enum.count(config["mirrors_predefined"])
+    num_mirrors = Enum.count(get_or_raise(config, "mirrors_predefined"))
     random = Enum.random(0..num_mirrors - 1)
     :ets.insert(:cpc_state, {:round_robin, {random, num_mirrors}})
+  end
+
+  def get_or_raise(map = %{}, key) do
+    case Map.get(map, key) do
+      nil -> raise "Unable to fetch key #{inspect key}. Please make sure the TOML file " <>
+                    "#{inspect @config_path} contains all required keys."
+      value -> value
+    end
   end
 
   def init_config() do
     config = Jerry.decode!(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
     :ets.new(:cpc_state, [:named_table, :public])
-    :ets.insert(:cpc_config, {:port, config["port"]})
-    :ets.insert(:cpc_config, {:cache_directory, config["cache_directory"]})
-    :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
-    :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enabled"]})
-    :ets.insert(:cpc_config, {:mirrors, config["mirrors_predefined"]})
-    # TODO throw a meaningful error message in case the TOML file is malformed.
-    case config["mirror_selection_method"] do
+    :ets.insert(:cpc_config, {:port, get_or_raise(config, "port")})
+    :ets.insert(:cpc_config, {:cache_directory, get_or_raise(config, "cache_directory")})
+    :ets.insert(:cpc_config, {:recv_packages, get_or_raise(config, "recv_packages")})
+    :ets.insert(:cpc_config, {:ipv6_enabled, get_or_raise(config, "ipv6_enabled")})
+    :ets.insert(:cpc_config, {:mirrors, get_or_raise(config, "mirrors_predefined")})
+    case get_or_raise(config, "mirror_selection_method") do
       "auto" ->
-        case config["mirrors_auto"] do
-          %{"https_required" => https_required,
-            "ipv4" => ipv4,
-            "ipv6" => ipv6,
-            "max_score" => max_score,
-            "timeout" => timeout,
-            "test_interval" => test_interval} ->
-              map = %{
-                https_required: https_required,
-                ipv4: ipv4,
-                ipv6: ipv6,
-                max_score: max_score,
-                timeout: timeout,
-                test_interval: test_interval
-              }
-              :ets.insert(:cpc_config, {:mirror_selection, {:auto, map}})
-        end
+        mirrors_auto = get_or_raise(config, "mirrors_auto")
+        map = %{
+          https_required: get_or_raise(mirrors_auto, "https_required"),
+          ipv4: get_or_raise(mirrors_auto, "ipv4"),
+          ipv6: get_or_raise(mirrors_auto, "ipv6"),
+          max_score: get_or_raise(mirrors_auto, "max_score"),
+          timeout: get_or_raise(mirrors_auto, "timeout"),
+          test_interval: get_or_raise(mirrors_auto, "test_interval")
+        }
+        :ets.insert(:cpc_config, {:mirror_selection, {:auto, map}})
       "predefined" ->
         :ok
     end
