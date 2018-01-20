@@ -48,7 +48,11 @@ defmodule Cpc.MirrorSelector do
         end
         {:noreply, renew_interval}
       error ->
-        Logger.warn "Unable to sort mirrors: #{inspect error}"
+        # TODO When the remote mirror can not be reached due to maintenance, trying again in a few
+        # seconds won't help: Perhaps we should also consider using a local cache, i.e., saving the
+        # json data (and their age) in an mnesia table and, when unable to fetch it from remote, use
+        # the data from cache.
+        Logger.warn "Unable to fetch mirror data from #{@json_path}: #{inspect error}"
         Logger.warn "Retry in #{@retry_after} milliseconds"
         :erlang.send_after(@retry_after, self(), :init)
     end
