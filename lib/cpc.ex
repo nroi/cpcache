@@ -18,6 +18,7 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
     :ets.insert(:cpc_config, {:ipv6_enabled, config["ipv6_enabled"]})
     :ets.insert(:cpc_config, {:mirrors, config["mirrors_predefined"]})
+    # TODO throw a meaningful error message in case the TOML file is malformed.
     case config["mirror_selection_method"] do
       "auto" ->
         case config["mirrors_auto"] do
