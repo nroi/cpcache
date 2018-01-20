@@ -11,6 +11,17 @@ defmodule Cpc.MirrorSelector do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
+  # TODO maybe we should allow to maintain a sort of grey-list:
+  # a list which basically says "do not use this mirror for the next x seconds".
+  # this could be useful for instance if a mirror is having temporary difficulties or it's just too
+  # slow.
+  # when downloading a large file and the speed is below a certain threshold, we could then greylist
+  # this mirror, and restart the download from a non-greylisted mirror. make sure that, in case the
+  # internet connection is just slow, we don't populate the greylist with all mirrors: perhaps we
+  # should limit the greylist to not more than half of the filtered mirrors.
+  # TODO implement the feature to swap the server while it's downloading, if the download is too
+  # slow: this feature would be really awesome!
+
   def init(nil) do
     # Start with the predefined mirrors. We will add "better" mirrors later, but for now, we want to
     # have some mirrors available in case a mirror is requested before the process to find the best
