@@ -75,8 +75,12 @@ defmodule Cpc.MirrorSelector do
   end
 
   def json_from_remote() do
+    # TODO we shouldn't use IPv6 by default, but we should provide the option to force IPv6. Mostly
+    # because of buggy dual stack lite implementations, so that we may use IPv6 in case IPv4 does
+    # not work.
+    address_family = :inet6
     opts = [
-      {:connect_options, []},
+      {:connect_options, [address_family]},
       {:ssl_options, [{:log_alert, false}]},
         []
       ]
