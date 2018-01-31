@@ -3,6 +3,7 @@ defmodule Cpc.MirrorSelector do
   require Logger
   @json_path "https://www.archlinux.org/mirrors/status/json/"
   @retry_after 5000
+  @max_attempts 3
 
   # The module used to test the latency of all available mirrors in order to sort them and provide a
   # selection of low-latency mirrors.
@@ -46,9 +47,40 @@ defmodule Cpc.MirrorSelector do
     mirrors
   end
 
+  def get_json(num_attempts) when num_attempts  == @max_attempts do
+    # failed to fetch the most recent mirror status from remote: see if we can fetch an older
+    # version from cache.
+    _ = Logger.warn "Max. number of attempts exceeded. Checking for a cached version of "
+        <> "the mirror data…"
+    db_result = :mnesia.transaction(fn ->
+      :mnesia.read({MirrorsStatus, "most_recent"})
+    end)
+    case db_result do
+      {:atomic, [{MirrorsStatus, "most_recent", {_timestamp, map}}]} ->
+        _ = Logger.warn "Retrieved mirror data from cache."
+        {:ok, map}
+      _ ->
+        _ = Logger.warn "No mirror data found in cache."
+        :error
+    end
+  end
+
+  def get_json(num_attempts) when num_attempts < @max_attempts do
+    case json_from_remote() do
+      result = {:ok, _json} ->
+        result
+      other ->
+        Logger.warn "Unable to fetch mirror data from #{@json_path}: #{inspect other}"
+        Logger.warn "Retry in #{@retry_after} milliseconds"
+        :timer.sleep(@retry_after)
+        get_json(num_attempts + 1)
+    end
+  end
+
   def handle_info(:init, renew_interval) do
-    case sorted_mirrors() do
-      {:ok, sorted} ->
+    case get_json(0) do
+      {:ok, map} ->
+        sorted = sorted_mirrors(map)
         [mirrors: predefined] = :ets.lookup(:cpc_config, :mirrors)
         :ets.insert(:cpc_state, {:mirrors, sorted ++ predefined})
         Logger.debug "Mirrors sorted: #{inspect sorted}"
@@ -58,14 +90,8 @@ defmodule Cpc.MirrorSelector do
             :erlang.send_after(millisecs, self(), :init)
         end
         {:noreply, renew_interval}
-      error ->
-        # TODO When the remote mirror can not be reached due to maintenance, trying again in a few
-        # seconds won't help: Perhaps we should also consider using a local cache, i.e., saving the
-        # json data (and their age) in an mnesia table and, when unable to fetch it from remote, use
-        # the data from cache.
-        Logger.warn "Unable to fetch mirror data from #{@json_path}: #{inspect error}"
-        Logger.warn "Retry in #{@retry_after} milliseconds"
-        :erlang.send_after(@retry_after, self(), :init)
+      :error ->
+        raise "Unable to fetch mirror statuses"
     end
   end
 
@@ -138,22 +164,27 @@ defmodule Cpc.MirrorSelector do
     fetch_latencies(url, mirror, 0, 5, [], settings.timeout)
   end
 
-  def sorted_mirrors() do
-    with {:ok, json} <- json_from_remote() do
-      mirrors = Enum.filter(json["urls"], fn
-        %{"protocol" => "http"} -> true
-        %{"protocol" => "https"} -> true
-        %{"protocol" => _} -> false
-      end)
-      results = Enum.map(filter_mirrors(mirrors), fn mirror -> test_mirror(mirror) end)
-      successes = for {:ok, {url, latency}} <- results, do: {url, latency}
-      sorted = Enum.sort_by(successes, fn
-        {_url, latency} -> latency
-      end) |> Enum.map(fn
-        {url, _latency} -> url
-      end)
-      {:ok, sorted}
-    end
+  def save_mirror_status_to_cache(map = %{}) do
+    {:atomic, :ok} = :mnesia.transaction(fn ->
+      :mnesia.write({MirrorsStatus, "most_recent", {:os.system_time(:second), map}})
+    end)
+    _ = Logger.debug "Mirrors status saved to cache"
+  end
+
+  def sorted_mirrors(json) do
+    save_mirror_status_to_cache(json)
+    mirrors = Enum.filter(json["urls"], fn
+      %{"protocol" => "http"} -> true
+      %{"protocol" => "https"} -> true
+      %{"protocol" => _} -> false
+    end)
+    results = Enum.map(filter_mirrors(mirrors), fn mirror -> test_mirror(mirror) end)
+    successes = for {:ok, {url, latency}} <- results, do: {url, latency}
+    Enum.sort_by(successes, fn
+      {_url, latency} -> latency
+    end) |> Enum.map(fn
+      {url, _latency} -> url
+    end)
   end
 
 
