@@ -42,6 +42,15 @@ defmodule Cpc.Downloader do
     {:ok, {url, save_to, receiver, start_from}}
   end
 
+
+  def bandwidth_to_human_readable(_bytes, microseconds) when microseconds <= 0 do
+    raise "duration must be positive to provide meaningful values"
+  end
+
+  def bandwidth_to_human_readable(0, _microseconds) do
+    "0 B/s"
+  end
+
   def bandwidth_to_human_readable(bytes, microseconds) do
     bytes_per_second = bytes / (microseconds / 1000000)
     exponent = :erlang.trunc(:math.log2(bytes_per_second) / :math.log2(1024))
