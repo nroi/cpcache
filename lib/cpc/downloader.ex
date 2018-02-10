@@ -102,6 +102,8 @@ defmodule Cpc.Downloader do
   end
 
   def supports_ip_protocol(version, url) when version == :ipv4 or version == :ipv6 do
+    # FIXME this function probably wouldn't be necessary if hackney supported happy eyeballs:
+    # https://github.com/benoitc/hackney/issues/206
     host = case :http_uri.parse(url) do
       {:ok, {_, _, host, _, _, _}} -> host
     end
