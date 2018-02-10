@@ -82,7 +82,7 @@ defmodule Cpc.Serializer do
 
   def handle_cast({:download_ended, filename, pid}, pidfnref) do
     {ended_downloads, ongoing_downloads} =
-      Enum.partition(pidfnref, fn
+      Enum.split_with(pidfnref, fn
         {^pid, ^filename, _ref} -> true
         _ -> false
       end)
