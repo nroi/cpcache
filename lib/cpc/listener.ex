@@ -9,6 +9,7 @@ defmodule Cpc.Listener do
   def init([]) do
     [{:port, port}] = :ets.lookup(:cpc_config, :port)
     [{:ipv6_enabled, ipv6_enabled}] = :ets.lookup(:cpc_config, :ipv6_enabled)
+
     standard_opts = [
       :binary,
       :inet6,
@@ -17,13 +18,16 @@ defmodule Cpc.Listener do
       packet: :http_bin,
       send_timeout: 1000
     ]
-    opts = case ipv6_enabled do
-      true -> [:inet6 | standard_opts]
-      false -> standard_opts
-    end
+
+    opts =
+      case ipv6_enabled do
+        true -> [:inet6 | standard_opts]
+        false -> standard_opts
+      end
+
     {:ok, listening_sock} = :gen_tcp.listen(port, opts)
-    Logger.info "Listening on port #{port}"
-    send self(), :init
+    Logger.info("Listening on port #{port}")
+    send(self(), :init)
     {:ok, listening_sock}
   end
 
@@ -32,9 +36,9 @@ defmodule Cpc.Listener do
   end
 
   def accept(listening_sock) do
-    _ = Logger.debug "Waiting for a client to accept the connection."
+    _ = Logger.debug("Waiting for a client to accept the connection.")
     {:ok, sock} = :gen_tcp.accept(listening_sock)
-    _ = Logger.debug "New connection, start new child."
+    _ = Logger.debug("New connection, start new child.")
     {:ok, child_pid} = Supervisor.start_child(Cpc.AcceptorSupervisor, [sock])
     # If the socket has already received any messages, they will be safely transferred
     # to the new owner. Note that creating a socket with active mode and then
@@ -42,9 +46,7 @@ defmodule Cpc.Listener do
     # gen_tcp documentation, but experience shows that this may still cause problems.
     :ok = :gen_tcp.controlling_process(sock, child_pid)
     :ok = :inet.setopts(sock, active: :once)
-    _ = Logger.debug "Child started, has new socket."
+    _ = Logger.debug("Child started, has new socket.")
     accept(listening_sock)
   end
-
-
 end

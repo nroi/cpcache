@@ -2,20 +2,21 @@ defmodule Cpc.Mixfile do
   use Mix.Project
 
   def project do
-    [app: :cpcache,
-     version: "0.1.0",
-     elixir: "~> 1.6",
-     build_embedded: Mix.env == :prod,
-     start_permanent: Mix.env == :prod,
-     deps: deps()]
+    [
+      app: :cpcache,
+      version: "0.1.0",
+      elixir: "~> 1.6",
+      build_embedded: Mix.env() == :prod,
+      start_permanent: Mix.env() == :prod,
+      deps: deps()
+    ]
   end
 
   # Configuration for the OTP application
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :hackney, :mnesia],
-     mod: {Cpc, []}]
+    [applications: [:logger, :inets, :ssl, :hackney, :mnesia], mod: {Cpc, []}]
   end
 
   # Dependencies can be Hex packages:

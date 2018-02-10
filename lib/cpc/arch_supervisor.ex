@@ -7,20 +7,23 @@ defmodule Cpc.ArchSupervisor do
   end
 
   def init([]) do
-    cache_directory = case :ets.lookup(:cpc_config, :cache_directory) do
-      [{:cache_directory, cdir}] ->
-        Path.join(cdir, "pkg")
-    end
+    cache_directory =
+      case :ets.lookup(:cpc_config, :cache_directory) do
+        [{:cache_directory, cdir}] ->
+          Path.join(cdir, "pkg")
+      end
+
     case File.mkdir(cache_directory) do
       {:error, :eexist} -> :ok
       :ok -> :ok
     end
+
     children = [
       worker(Cpc.Serializer, []),
       worker(Cpc.Listener, []),
       worker(Cpc.MirrorSelector, [])
     ]
+
     supervise(children, strategy: :one_for_one)
   end
-
 end

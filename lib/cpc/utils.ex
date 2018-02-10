@@ -1,7 +1,7 @@
 defmodule Cpc.Utils do
   def headers_to_lower(headers) do
     Enum.map(headers, fn {key, val} ->
-      {key |> to_string |> String.downcase, val |> to_string |> String.downcase}
+      {key |> to_string |> String.downcase(), val |> to_string |> String.downcase()}
     end)
   end
 
@@ -15,13 +15,14 @@ defmodule Cpc.Utils do
   def repeat_until_ok(to_repeat, [arg | []]) do
     to_repeat.(arg)
   end
+
   def repeat_until_ok(to_repeat, [arg | rest_args]) do
     case to_repeat.(arg) do
       result = {:ok, _} ->
         result
+
       _ ->
         repeat_until_ok(to_repeat, rest_args)
     end
   end
-
 end

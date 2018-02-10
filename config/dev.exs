@@ -1,3 +1,2 @@
 use Mix.Config
-config :logger, :console,
-  metadata: [:pid]
+config :logger, :console, metadata: [:pid]

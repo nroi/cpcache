@@ -10,8 +10,8 @@ defmodule Cpc.Filewatcher do
   end
 
   def init({receiver, filename, max_size, start_size}) do
-    Logger.debug "Init Filewatcher for file #{filename}"
-    send self(), :init
+    Logger.debug("Init Filewatcher for file #{filename}")
+    send(self(), :init)
     {:ok, {filename, start_size, max_size, receiver}}
   end
 
@@ -27,25 +27,31 @@ defmodule Cpc.Filewatcher do
       # approach proved too inefficient with intervals as low as 5 ms.
       exit(:normal)
     end
+
     case File.stat!(filename).size do
       ^prev_size ->
         :timer.sleep(@interval)
         loop(args)
+
       ^max_size ->
         :ok = GenServer.cast(receiver, {:file_complete, {filename, prev_size, max_size}})
         {:stop, :normal, nil}
+
       new_size when new_size > prev_size ->
         # If this is the first time the start_size threshold was exceeded, we report start_size as
         # the previous size.
         clean_prev_size = max(start_size, prev_size)
-        :ok = GenServer.cast(receiver, {:filesize_increased, {filename, clean_prev_size, new_size}})
+
+        :ok =
+          GenServer.cast(receiver, {:filesize_increased, {filename, clean_prev_size, new_size}})
+
         :timer.sleep(@interval)
         loop({filename, new_size, max_size, start_size, receiver})
+
       new_size when new_size < prev_size ->
         # This state can occur when the specified start_size is larger than the initial file size.
         :timer.sleep(@interval)
         loop({filename, prev_size, max_size, start_size, receiver})
     end
   end
-
 end

@@ -9,7 +9,7 @@ defmodule Cpc.AcceptorSupervisor do
     children = [
       worker(Cpc.ClientRequest, [], restart: :temporary)
     ]
+
     supervise(children, strategy: :simple_one_for_one)
   end
-
 end
