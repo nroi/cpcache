@@ -14,7 +14,6 @@ defmodule Cpc.Downloader do
 
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
-  #
 
   def try_all([url | fallbacks], save_to, start_from \\ nil) do
     {:ok, pid} = start_link(url, save_to, self(), start_from)
@@ -247,7 +246,6 @@ defmodule Cpc.Downloader do
   end
 
   def download(client, file) do
-    # TODO check if the delayed_write option has some performance implications.
     case :hackney.stream_body(client) do
       {:ok, result} ->
         IO.binwrite(file, result)
