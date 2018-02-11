@@ -436,6 +436,7 @@ defmodule Cpc.ClientRequest do
 
       {:ok, _} ->
         urls = mirror_urls(uri)
+
         # TODO not very well-tested: What happens when we successfully download the first few bytes
         # from the first mirror, then this mirror fails and we need to swap to the next mirror?
         case Cpc.Downloader.try_all(urls, filename, start_http_from_byte) do
@@ -445,16 +446,20 @@ defmodule Cpc.ClientRequest do
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug("Sent header: #{reply_header}")
             send_from_cache.()
+
             {:ok, _} =
               Filewatcher.start_link(self(), filename, content_length, start_http_from_byte)
+
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
-            _ = Logger.warn "YES"
             {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
+
           {:error, reason} ->
-            reply_header = case reason do
-              404 -> header_from_code(404)
-              _   -> header_from_code(500)
-            end
+            reply_header =
+              case reason do
+                404 -> header_from_code(404)
+                _ -> header_from_code(500)
+              end
+
             :ok = :gen_tcp.send(state.sock, reply_header)
             _ = Logger.debug("Sent header: #{reply_header}")
             {:noreply, %{state | sent_header: true, action: :recv_header}}
