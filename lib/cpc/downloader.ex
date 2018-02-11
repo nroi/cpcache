@@ -220,7 +220,6 @@ defmodule Cpc.Downloader do
           String.to_integer(length)
       end
 
-    # TODO is this message still received, now that we use the try_all function instead?
     send(request.receiver, {:content_length, full_content_length})
     path = url_without_host(request.url)
 
