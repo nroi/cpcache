@@ -19,6 +19,8 @@ defmodule Cpc.Listener do
       send_timeout: 1000
     ]
 
+    # TODO it seems that we first include :inet6 in the standard opts… then we include it again if
+    # ipv6_enabled is true?
     opts =
       case ipv6_enabled do
         true -> [:inet6 | standard_opts]
@@ -44,6 +46,7 @@ defmodule Cpc.Listener do
     # to the new owner. Note that creating a socket with active mode and then
     # changing the controlling process is supposed to work according to the
     # gen_tcp documentation, but experience shows that this may still cause problems.
+    # That is why we chose to start the socket in passive mode, then set active_once.
     :ok = :gen_tcp.controlling_process(sock, child_pid)
     :ok = :inet.setopts(sock, active: :once)
     _ = Logger.debug("Child started, has new socket.")

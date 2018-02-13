@@ -187,19 +187,27 @@ defmodule Cpc.ClientRequest do
 
     date = to_string(:httpd_util.rfc1123_date())
 
-    "HTTP/1.1 200 OK\r\n" <>
-      "Server: cpcache\r\n" <>
-      "Date: #{date}\r\n" <>
-      "Content-Type: application/octet-stream\r\n" <>
-      "Content-Length: #{content_length}\r\n" <> content_range_line <> "\r\n"
+    """
+    HTTP/1.1 200 OK\r
+    Server: cpcache\r
+    Date: #{date}\r
+    Content-Type: application/octet-stream\r
+    Content-Length: #{content_length}\r
+    #{content_range_line}\r
+    \r
+    """
   end
 
   defp default_header(text, content_length) do
     date = to_string(:httpd_util.rfc1123_date())
 
-    "HTTP/1.1 #{text}\r\n" <>
-      "Server: cpcache\r\n" <>
-      "Date: #{date}\r\n" <> "Content-Length: #{content_length}\r\n" <> "\r\n"
+    """
+    HTTP/1.1 #{text}\r
+    Server: cpcache\r
+    Date: #{date}\r
+    Content-Length: #{content_length}\r
+    \r
+    """
   end
 
   defp header_from_code(code, content_length \\ 0)
