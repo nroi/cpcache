@@ -168,8 +168,14 @@ defmodule Cpc.MirrorSelector do
       end
     end
 
+    # TODO hardcoded setting.
+    test_blacklist = fn url ->
+      url != "https://ftp.fau.de/archlinux/"
+    end
+
     for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors,
-        score <= settings.max_score && test_https.(protocol) && test_protocols.(url) do
+        score <= settings.max_score && test_https.(protocol) && test_protocols.(url) &&
+          test_blacklist.(url) do
       url
     end
   end
@@ -208,6 +214,7 @@ defmodule Cpc.MirrorSelector do
   def sorted_mirrors(json) do
     save_mirror_status_to_cache(json)
 
+    # TODO don't hardcode those settings.
     mirrors =
       Enum.filter(json["urls"], fn
         %{"protocol" => "http"} -> true
