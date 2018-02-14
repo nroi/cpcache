@@ -170,7 +170,7 @@ defmodule Cpc.MirrorSelector do
 
     # TODO hardcoded setting.
     test_blacklist = fn url ->
-      url != "https://ftp.fau.de/archlinux/"
+      url != "https://ftp.fau.de/archlinux/" && url != "https://mirrors.n-ix.net/archlinux/"
     end
 
     for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors,
