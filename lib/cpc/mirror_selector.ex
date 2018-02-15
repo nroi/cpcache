@@ -43,7 +43,9 @@ defmodule Cpc.MirrorSelector do
       end
 
     :ets.insert(:cpc_state, {:mirrors, predefined})
-    send(self(), :init)
+    if renew_interval != :never do
+      send(self(), :init)
+    end
     {:ok, renew_interval}
   end
 
