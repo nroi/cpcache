@@ -193,12 +193,10 @@ defmodule Cpc.ClientRequest do
     Date: #{date}\r
     Content-Type: application/octet-stream\r
     Content-Length: #{content_length}\r
-    #{content_range_line}\r
-    \r
-    """
+    """ <> content_range_line <> "\r\n"
   end
 
-  defp default_header(text, content_length) do
+  def default_header(text, content_length) do
     date = to_string(:httpd_util.rfc1123_date())
 
     """
@@ -206,7 +204,6 @@ defmodule Cpc.ClientRequest do
     Server: cpcache\r
     Date: #{date}\r
     Content-Length: #{content_length}\r
-    \r
     """
   end
 
@@ -296,7 +293,7 @@ defmodule Cpc.ClientRequest do
 
         reply_header = header(content_length, state.headers.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
-        _ = Logger.debug("Sent header: #{reply_header}")
+        _ = Logger.debug("Sent header: #{inspect reply_header}")
         file = File.open!(filename, [:read, :raw])
 
         start_size =
