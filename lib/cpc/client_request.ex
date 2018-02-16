@@ -293,7 +293,7 @@ defmodule Cpc.ClientRequest do
 
         reply_header = header(content_length, state.headers.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)
-        _ = Logger.debug("Sent header: #{inspect reply_header}")
+        _ = Logger.debug("Sent header: #{inspect(reply_header)}")
         file = File.open!(filename, [:read, :raw])
 
         start_size =

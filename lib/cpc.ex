@@ -29,6 +29,7 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:recv_packages, get_or_raise(config, "recv_packages")})
     :ets.insert(:cpc_config, {:ipv6_enabled, get_or_raise(config, "ipv6_enabled")})
     :ets.insert(:cpc_config, {:mirrors, get_or_raise(config, "mirrors_predefined")})
+    :ets.insert(:cpc_config, {:mirrors_blacklist, get_or_raise(config, "mirrors_blacklist")})
 
     case get_or_raise(config, "mirror_selection_method") do
       "auto" ->

@@ -43,9 +43,11 @@ defmodule Cpc.MirrorSelector do
       end
 
     :ets.insert(:cpc_state, {:mirrors, predefined})
+
     if renew_interval != :never do
       send(self(), :init)
     end
+
     {:ok, renew_interval}
   end
 
@@ -170,14 +172,18 @@ defmodule Cpc.MirrorSelector do
       end
     end
 
-    # TODO hardcoded setting.
+    [mirrors_blacklist: blacklist] = :ets.lookup(:cpc_config, :mirrors_blacklist)
+    # test_blacklist = &(!Enum.member?(blacklist, &1))
+
     test_blacklist = fn url ->
-      url != "https://ftp.fau.de/archlinux/" && url != "https://mirrors.n-ix.net/archlinux/"
+      !Enum.any?(blacklist, fn blacklisted ->
+        String.starts_with?(url, blacklisted)
+      end)
     end
 
     for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors,
-        score <= settings.max_score && test_https.(protocol) && test_protocols.(url) &&
-          test_blacklist.(url) do
+        score <= settings.max_score && test_blacklist.(url) && test_https.(protocol) &&
+          test_protocols.(url) do
       url
     end
   end
