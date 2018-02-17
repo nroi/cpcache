@@ -204,6 +204,7 @@ defmodule Cpc.ClientRequest do
     Server: cpcache\r
     Date: #{date}\r
     Content-Length: #{content_length}\r
+    \r
     """
   end
 
