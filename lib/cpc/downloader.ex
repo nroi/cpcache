@@ -153,7 +153,6 @@ defmodule Cpc.Downloader do
       end
 
     case prev_supported do
-      # TODO executing this upon each start is a nuisance.
       :unknown ->
         _ = Logger.debug("Send HEAD request to test for #{version} support.")
 
