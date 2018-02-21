@@ -12,19 +12,16 @@ defmodule Cpc.Listener do
 
     standard_opts = [
       :binary,
-      :inet6,
       active: false,
       reuseaddr: true,
       packet: :http_bin,
       send_timeout: 1000
     ]
 
-    # TODO it seems that we first include :inet6 in the standard opts… then we include it again if
-    # ipv6_enabled is true?
     opts =
       case ipv6_enabled do
         true -> [:inet6 | standard_opts]
-        false -> standard_opts
+        false -> [:inet | standard_opts]
       end
 
     {:ok, listening_sock} = :gen_tcp.listen(port, opts)
