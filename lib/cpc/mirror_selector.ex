@@ -222,7 +222,6 @@ defmodule Cpc.MirrorSelector do
   def sorted_mirrors(json) do
     save_mirror_status_to_cache(json)
 
-    # TODO don't hardcode those settings.
     mirrors =
       Enum.filter(json["urls"], fn
         %{"protocol" => "http"} -> true
