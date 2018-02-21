@@ -82,19 +82,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-  # Returns the download stats from the previous duration_seconds seconds.
-  def stats_from(duration_seconds) do
-    microsecs = :erlang.system_time(:micro_seconds) - duration_seconds * 1_000_000
-    head = {DownloadSpeed, "repo.helios.click", :"$1", :"$2", :"$3"}
-
-    {:atomic, data} =
-      :mnesia.transaction(fn ->
-        :mnesia.select(DownloadSpeed, [{head, [{:>, :"$2", microsecs}], [:"$$"]}])
-      end)
-
-    data
-  end
-
   def measure_speed(request, content_length) do
     now = :erlang.system_time(:micro_seconds)
     diff = now - request.start_time
@@ -103,12 +90,6 @@ defmodule Cpc.Downloader do
     speed = bandwidth_to_human_readable(content_length, diff)
     secs = Float.round(diff / 1_000_000, 2)
     _ = Logger.debug("Received #{content_length} bytes in #{secs} seconds (#{speed}).")
-    host = URI.parse(to_string(request.url)).host
-
-    {:atomic, :ok} =
-      :mnesia.transaction(fn ->
-        :mnesia.write({DownloadSpeed, host, content_length, request.start_time, diff})
-      end)
 
     :ok
   end

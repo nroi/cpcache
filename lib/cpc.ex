@@ -85,7 +85,6 @@ defmodule Cpc do
       type: :bag
     ]
 
-    create_table(DownloadSpeed, options_downloadspeed)
     create_table(ContentLength, attributes: [:path, :content_length], disc_copies: [node()])
     create_table(Ipv6Support, attributes: [:date, :supported], disc_copies: [node()])
     create_table(Ipv4Support, attributes: [:date, :supported], disc_copies: [node()])
