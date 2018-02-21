@@ -44,7 +44,6 @@ defmodule Cpc.ClientRequest do
         [{:cache_directory, cd}] -> Path.join(cd, "pkg")
       end
 
-    [mirror | _] = MirrorSelector.get_all()
     filename = Path.join(cache_dir, uri)
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
@@ -84,6 +83,9 @@ defmodule Cpc.ClientRequest do
 
     case {is_database, complete_file_exists, partial_file_exists} do
       {true, _, _} ->
+        # no attempt is made to select the best mirror: since we use redirects for database
+        # files, we just use the first mirror.
+        [mirror | _] = MirrorSelector.get_all()
         {:database, Path.join(mirror, uri)}
 
       {false, false, false} ->
