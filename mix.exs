@@ -16,7 +16,7 @@ defmodule Cpc.Mixfile do
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :hackney, :mnesia, :jerry, :poison], mod: {Cpc, []}]
+    [applications: [:logger, :inets, :ssl, :hackney, :mnesia, :jerry, :jason], mod: {Cpc, []}]
   end
 
   # Dependencies can be Hex packages:
@@ -33,7 +33,7 @@ defmodule Cpc.Mixfile do
       {:distillery, "~> 1.5"},
       {:hackney, "~> 1.11"},
       {:jerry, "~> 0.1.4"},
-      {:poison, "~> 3.1"}
+      {:jason, "~> 1.0"}
     ]
   end
 end

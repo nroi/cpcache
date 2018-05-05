@@ -139,7 +139,7 @@ defmodule Cpc.MirrorSelector do
 
     with {:ok, 200, _headers, client} <- :hackney.request(:get, @json_path, [], "", opts) do
       with {:ok, body} <- :hackney.body(client) do
-        Poison.decode(body)
+        Jason.decode(body)
       end
     end
   end
