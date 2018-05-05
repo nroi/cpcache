@@ -21,5 +21,3 @@
 
 # Enable SMP automatically based on availability
 -smp auto
-
--mnesia dir '"/var/cache/cpcache/mnesia"'

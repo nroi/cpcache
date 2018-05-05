@@ -5,6 +5,7 @@ defmodule Cpc.ClientRequest do
   alias Cpc.Filewatcher
   alias Cpc.Utils
   alias Cpc.MirrorSelector
+  alias Cpc.TableAccess
   require Logger
   use GenServer
 
@@ -249,34 +250,20 @@ defmodule Cpc.ClientRequest do
   # req_uri must be the URI as requested by the user, not the URI that will be used to GET the file
   # via HTTP.
   def content_length(req_uri) do
-    db_result =
-      :mnesia.transaction(fn ->
-        :mnesia.read({ContentLength, Path.basename(req_uri)})
-      end)
 
-    result =
-      case db_result do
-        {:atomic, [{ContentLength, _basename, content_length}]} -> {:ok, content_length}
-        {:atomic, []} -> :not_found
-      end
+    result = TableAccess.get("content_length", Path.basename(req_uri))
 
     case result do
       {:ok, content_length} ->
-        _ = Logger.debug("Retrieve content-length for #{req_uri} from cache.")
+        _ = Logger.debug("Retrieved content-length for #{req_uri} from cache.")
         {:ok, content_length}
 
-      :not_found ->
-        Logger.warn("Fetch content length")
+      {:error, :not_found} ->
         _ = Logger.debug("Retrieve content-length for #{req_uri} via HTTP HEAD request.")
 
         with {:ok, headers} <- headers_until_success(req_uri) do
           content_length = :proplists.get_value("content-length", headers) |> String.to_integer()
-
-          {:atomic, :ok} =
-            :mnesia.transaction(fn ->
-              :mnesia.write({ContentLength, Path.basename(req_uri), content_length})
-            end)
-
+          TableAccess.add("content_length", Path.basename(req_uri), content_length)
           _ = Logger.debug("Saved to database: content-length #{content_length} for #{req_uri}")
           {:ok, content_length}
         end
@@ -289,10 +276,7 @@ defmodule Cpc.ClientRequest do
 
     case Cpc.Downloader.try_all(urls, filename, 0) do
       {:ok, %{content_length: content_length, downloader_pid: pid}} ->
-        {:atomic, :ok} =
-          :mnesia.transaction(fn ->
-            :mnesia.write({ContentLength, Path.basename(uri), content_length})
-          end)
+        TableAccess.add("content_length", Path.basename(uri), content_length)
 
         reply_header = header(content_length, state.headers.range_start)
         :ok = :gen_tcp.send(state.sock, reply_header)

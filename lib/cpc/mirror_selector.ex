@@ -1,5 +1,6 @@
 defmodule Cpc.MirrorSelector do
   use GenServer
+  alias Cpc.TableAccess
   require Logger
   @json_path "https://www.archlinux.org/mirrors/status/json/"
   @retry_after 5000
@@ -65,17 +66,13 @@ defmodule Cpc.MirrorSelector do
           "the mirror data…"
       )
 
-    db_result =
-      :mnesia.transaction(fn ->
-        :mnesia.read({MirrorsStatus, "most_recent"})
-      end)
+    db_result = TableAccess.get("mirrors_status", "most_recent")
 
     case db_result do
-      {:atomic, [{MirrorsStatus, "most_recent", {_timestamp, map}}]} ->
-        _ = Logger.warn("Retrieved mirror data from cache.")
+      {:ok, {_timestamp, map}} ->
         {:ok, map}
 
-      _ ->
+      {:error, :not_found} ->
         _ = Logger.warn("No mirror data found in cache.")
         :error
     end
@@ -211,11 +208,7 @@ defmodule Cpc.MirrorSelector do
   end
 
   def save_mirror_status_to_cache(map = %{}) do
-    {:atomic, :ok} =
-      :mnesia.transaction(fn ->
-        :mnesia.write({MirrorsStatus, "most_recent", {:os.system_time(:second), map}})
-      end)
-
+    TableAccess.add("mirrors_status", "most_recent", {:os.system_time(:second), map})
     _ = Logger.debug("Mirrors status saved to cache")
   end
 

@@ -5,6 +5,7 @@ defmodule Cpc.Downloader do
   use GenServer
   alias Cpc.Utils
   alias Cpc.Downloader, as: Dload
+  alias Cpc.TableAccess
 
   defstruct url: nil,
             save_to: nil,
@@ -105,23 +106,20 @@ defmodule Cpc.Downloader do
     # Rather than just testing if the server has an AAAA record set, we actually want to find out if
     # it successfully replies to a GET request. Experience shows that some servers have their AAAA
     # record set and still won't allow clients to connect via IPv6, e.g. due to connection timeouts.
-    db_name =
+    table_name =
       case version do
-        :ipv4 -> Ipv4Support
-        :ipv6 -> Ipv6Support
+        :ipv4 -> "ipv4_support"
+        :ipv6 -> "ipv6_support"
       end
 
-    db_result =
-      :mnesia.transaction(fn ->
-        :mnesia.read({db_name, host})
-      end)
+    db_result = TableAccess.get(table_name, host)
 
     prev_supported =
       case db_result do
-        {:atomic, []} ->
+        {:error, :not_found} ->
           :unknown
 
-        {:atomic, [{^db_name, ^host, {then, supported_then}}]} ->
+        {:ok, {then, supported_then}} ->
           now = :os.system_time(:second)
           diff = now - then
           expired = diff >= @validity
@@ -151,10 +149,7 @@ defmodule Cpc.Downloader do
             _ -> false
           end
 
-        {:atomic, :ok} =
-          :mnesia.transaction(fn ->
-            :mnesia.write({db_name, host, {:os.system_time(:second), support}})
-          end)
+        TableAccess.add(table_name, host, {:os.system_time(:second), support})
 
         support
 
@@ -204,10 +199,7 @@ defmodule Cpc.Downloader do
     send(request.receiver, {:content_length, full_content_length})
     path = url_without_host(request.url)
 
-    {:atomic, :ok} =
-      :mnesia.transaction(fn ->
-        :mnesia.write({ContentLength, {Path.basename(path)}, full_content_length})
-      end)
+    TableAccess.add("content_length", Path.basename(path), full_content_length)
 
     {:ok, file} = File.open(request.save_to, [:append, :raw])
 

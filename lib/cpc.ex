@@ -1,5 +1,6 @@
 defmodule Cpc do
   use Application
+  alias Cpc.TableAccess
   require Logger
   @config_path "/etc/cpcache/cpcache.toml"
 
@@ -53,42 +54,17 @@ defmodule Cpc do
     init_round_robin(config)
   end
 
-  def create_table(table, options) do
-    if not Enum.member?(:mnesia.system_info(:tables), table) do
-      _ = Logger.info("Table #{table} does not exist, will create it.")
-      :stopped = :mnesia.stop()
-
-      case :mnesia.create_schema([node()]) do
-        :ok ->
-          _ = Logger.debug("Successfully created schema for mnesia.")
-
-        {:error, {_, {:already_exists, _}}} ->
-          _ = Logger.debug("Mnesia schema already exists.")
-      end
-
-      :ok = :mnesia.start()
-
-      case :mnesia.create_table(table, options) do
-        {:atomic, :ok} ->
-          _ = Logger.debug("Successfully created Mnesia table.")
-
-        {:aborted, {:already_exists, ^table}} ->
-          _ = Logger.debug("Mnesia table already exists.")
-      end
-    end
-  end
-
-  def init_mnesia() do
-    create_table(ContentLength, attributes: [:path, :content_length], disc_copies: [node()])
-    create_table(Ipv6Support, attributes: [:date, :supported], disc_copies: [node()])
-    create_table(Ipv4Support, attributes: [:date, :supported], disc_copies: [node()])
-    create_table(MirrorsStatus, attributes: [:date, :status], disc_copies: [node()])
+  def init_dets() do
+    TableAccess.create_table("content_length")
+    TableAccess.create_table("ipv6_support")
+    TableAccess.create_table("ipv4_support")
+    TableAccess.create_table("mirrors_status")
   end
 
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
     init_config()
-    init_mnesia()
+    init_dets()
 
     children = [
       supervisor(Cpc.ArchSupervisor, []),
