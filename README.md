@@ -86,7 +86,7 @@ Here's an example config that can be used for NGINX:
 
 ```NGINX
 server {
-    server_name repo.clkc.cc;
+    server_name archlinux.myhost.org;
     listen [::]:80;
     listen 80;
 
