@@ -1,16 +1,61 @@
-cache_directory = "/var/cache/cpcache"
-
-# Bind to an IPv6 address, in addition to an IPv4 address.
-ipv6_enabled = true
-
-# Enter the URL of the mirror currently used in /etc/pacman.d/mirrorlist
-# here, WITHOUT trailing $repo/os/$arch.
-mirrors = ["https://mirror.js-webcoding.de/pub/archlinux/"]
-port = 7070
 # Note that cpcache relies on the directory structure that is created in
 # /var/cache/cpcache during install. If you change this setting, copy the
 # contents to the new directory and make sure user cpcache has read- and
 # write-access.
+cache_directory = "/var/cache/cpcache"
 
-[recv_packages]
-    key = "topsecret"
+# The port to listen on.
+port = 7070
+
+# Bind to an IPv6 address, in addition to an IPv4 address.
+ipv6_enabled = true
+
+# The selection method to choose a mirror. Valid values are:
+#   "auto": In order to attempt to find suitable mirrors automatically.
+#           With this method, latency tests are run on the official mirrors and
+#           one mirror with low latency will be chosen.
+#   "predefined": To only choose the mirrors defined for the variable
+#                 mirrors_predefined (see below).
+mirror_selection_method = "auto"
+
+
+# In case no suitable mirror could be found automatically, cpcache will attempt
+# to download files from the following mirrors:
+mirrors_predefined = [
+    "https://mirror.pseudoform.org/",
+    "https://repo.itmettke.de/archlinux/",
+    "https://mirror.metalgamer.eu/archlinux/",
+    "https://archmirror.tomforb.es/",
+    "https://archlinux.thaller.ws/",
+]
+
+# The method to choose suitable mirrors automatically may not always work
+# perfectly. If one of the automatically chosen mirrors turns out to be slow or
+# unstable, add it to this list.
+mirrors_blacklist = []
+
+# Uncomment if you want to regularly send a list containing all currently
+# installed packages from all clients which have clyde-client installed.
+# [recv_packages]
+#     key = "topsecret"
+
+[mirrors_auto]
+    # only use mirrors with HTTPS support.
+    https_required = true
+    # mirrors must support IPv4.
+    ipv4 = true
+    # mirrors must support IPv6.
+    ipv6 = true
+    # The maximum score allowed from a mirror. See
+    # https://www.archlinux.org/mirrors/status/ for an explanation of this
+    # metric.
+    max_score = 2.5
+    # timeout, in milliseconds, when testing the mirrors' latencies.
+    # Mirros which exceed the timeout will not be considered further, regardless
+    # of their score.
+    timeout = 500
+    # If mirrors are chosen automatically, this setting allows to define how
+    # often the selection process should be repeated. Valid values are positive
+    # numbers (for instance, 24 to rerun the selection process every 24 hours),
+    # and -1 to never re-run the selection process.
+    test_interval = 24
