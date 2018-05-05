@@ -52,19 +52,10 @@ let's compare cpcache with each of them.
   always available. Especially on laptops, you'd have to change the `http_proxy` environment
   variable whenever you're on the move.
 
-## Setup with NGINX
-In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
-will cause timeouts in pacman since downloads then requires a few seconds to start. Use
-`proxy_buffering off;` to prevent this.
 
-## Limitations
-The mirror configured in /etc/cpcache.toml must use the default relative path, i.e., `$repo/os/$arch`
-for x86 and `$arch/$repo` for ARM.
+## Supported Platforms
+cpcache runs on all platforms supported by Erlang, which includes x86_64 and most ARM platforms. This also means that cpcache does run on a Raspberry Pi, but you may find that cpcache does not work flawlessly on such low-end devices due to the high CPU requirements of multiple concurrent up- and downloads. Only x86_64 clients are supported by cpcache, which means that while cpcache can be installed on an ARM device, it cannot serve files to clients which run anything other than the official Arch Linux distribution.
 
-## Configuration
-
-cpcache expects a configuration file in `/etc/cpcache.toml`. You can copy the example configuration file
-from `conf/cpcache.toml` to `/etc` and adapt it as required.
 
 ## Installation
 A package for Arch Linux is available on [AUR](https://aur.archlinux.org/packages/cpcache-git/).
@@ -74,8 +65,36 @@ systemctl start cpcache.service
 systemctl enable cpcache.service
 ```
 Set the new mirror in `/etc/pacman.d/mirrorlist` on all clients. For instance, if the server running
-cpcache can be reached via `alarm.local`, add the following to the top of the mirrorlist file:
+cpcache can be reached via `alarm.local`, add the following to the beginning of the mirrorlist file:
 ```bash
 Server = http://alarm.local:7070/$repo/os/$arch # !cpcache
 ```
 The `!cpcache` comment is required only if you use [clyde](https://github.com/nroi/clyde-server).
+
+
+## Configuration
+
+cpcache expects a configuration file in `/etc/cpcache.toml`. You can copy the example configuration file
+from `conf/cpcache.toml` to `/etc/cpcachhe` and adapt it as required.
+
+
+## Setup with NGINX
+In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
+will cause timeouts in pacman since downloads then require a few seconds to start. Use
+`proxy_buffering off;` to prevent this.
+Here's an example config that can be used for NGINX:
+
+```NGINX
+server {
+    server_name repo.clkc.cc;
+    listen [::]:80;
+    listen 80;
+
+    location ~ ^/(core|extra|community|multilib)/ {
+        proxy_pass http://127.0.0.1:7070;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
