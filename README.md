@@ -24,8 +24,7 @@ Most importantly, cpcache allows you to share bandwidth when multiple clients ar
 file at the same time. For instance, suppose a second client requests a file that has been
 downloaded to 30% by the first client. The second client will obtain at least 30% of that file with
 whatever speed your LAN provides. Afterwards, both clients continue to download with the full speed
-provided by your ISP. See
-[this recording](https://up.helios.click/f/parallel-downloads.webm) for a simple demonstration.
+provided by your ISP.
 
 A number of different caching methods are listed in the
 [wiki](https://wiki.archlinux.org/index.php?title=Pacman/Tips_and_tricks&redirect=no#Network_shared_pacman_cache),
