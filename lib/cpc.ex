@@ -26,10 +26,10 @@ defmodule Cpc do
     :ets.new(:cpc_state, [:named_table, :public])
     :ets.insert(:cpc_config, {:port, get_or_raise(config, "port")})
     :ets.insert(:cpc_config, {:cache_directory, get_or_raise(config, "cache_directory")})
-    :ets.insert(:cpc_config, {:recv_packages, get_or_raise(config, "recv_packages")})
     :ets.insert(:cpc_config, {:ipv6_enabled, get_or_raise(config, "ipv6_enabled")})
     :ets.insert(:cpc_config, {:mirrors, get_or_raise(config, "mirrors_predefined")})
     :ets.insert(:cpc_config, {:mirrors_blacklist, get_or_raise(config, "mirrors_blacklist")})
+    :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
 
     case get_or_raise(config, "mirror_selection_method") do
       "auto" ->
