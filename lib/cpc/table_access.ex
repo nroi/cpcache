@@ -3,7 +3,7 @@ defmodule Cpc.TableAccess do
 
   def filename(table) do
     [{:cache_directory, cache_directory}] = :ets.lookup(:cpc_config, :cache_directory)
-    Path.join(cache_directory, table)
+    Path.join([cache_directory, "state", table])
   end
 
   def create_table(table) do

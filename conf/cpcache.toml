@@ -8,7 +8,9 @@ cache_directory = "/var/cache/cpcache"
 port = 7070
 
 # Bind to an IPv6 address, in addition to an IPv4 address.
-ipv6_enabled = true
+# You should set this to true if your cpcache server should serve requests over
+# the internet and cannot be reached through an IPv4 address.
+ipv6_enabled = false
 
 # The selection method to choose a mirror. Valid values are:
 #   "auto": In order to attempt to find suitable mirrors automatically.
