@@ -42,8 +42,10 @@ let's compare cpcache with each of them.
   packages redundantly. Also, packages that are cached once are always available, not only if the
   machine that cached it happens to be online.
 * Reverse proxy cache using NGINX: Apart from the fact that cpcache can utilize the full bandwidth
-  even with multiple concurrent downloads, the setup described in the wiki is quite similar to cpc's
-  approach.
+  even with multiple concurrent downloads, the setup described in the wiki is quite similar to
+  cpcaches approach. However, cpcache provides additional features. For instance, it obtains the
+  most recent list of official mirrors and attempts to choose a fast mirror for you. This means you
+  will not have to maintain a mirror list yourself.
 * Proxy cache using [squid](https://wiki.archlinux.org/index.php/Package_Proxy_Cache):
   From the perspective of the client, cpcache acts like an additional mirror, so that pacman will
   try another mirror if the machine running cpcache is unreachable. Configuring a proxy
