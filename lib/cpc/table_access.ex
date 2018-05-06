@@ -11,7 +11,7 @@ defmodule Cpc.TableAccess do
     case :dets.open_file(fname, [type: :set, repair: :false]) do
       {:ok, _} ->
         :ok
-      {:error, :needs_repair} ->
+      {:error, {:needs_repair, ^fname}} ->
         # Attempting to repair a file often fails, so we just delete the old one and a new one
         # instead.
         File.rm!(fname)
