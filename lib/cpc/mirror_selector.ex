@@ -81,6 +81,7 @@ defmodule Cpc.MirrorSelector do
   def get_json(num_attempts) when num_attempts < @max_attempts do
     case json_from_remote() do
       result = {:ok, _json} ->
+        Logger.info "Successfully fetched mirror data from #{@json_path}."
         result
 
       other ->
