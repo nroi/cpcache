@@ -76,8 +76,8 @@ The `!cpcache` comment is required only if you use [clyde](https://github.com/nr
 
 ## Configuration
 
-cpcache expects a configuration file in `/etc/cpcache.toml`. You can copy the example configuration file
-from `conf/cpcache.toml` to `/etc/cpcachhe` and adapt it as required.
+cpcache expects a configuration file in `/etc/cpcache/cpcache.toml`. You can copy the example
+configuration file from `conf/cpcache.toml` to `/etc/cpcache/cpcache.toml` and adapt it as required.
 
 
 ## Setup with NGINX
