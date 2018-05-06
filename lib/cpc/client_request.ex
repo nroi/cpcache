@@ -659,11 +659,10 @@ defmodule Cpc.ClientRequest do
   end
 
   def handle_info(
-        {:http, _, {:http_request, :POST, {:abs_path, "/" <> path}, _}},
+        {:http, _, {:http_request, :POST, {:abs_path, "/" <> hn}, _}},
         state = %CR{action: :recv_header}
       ) do
     :ok = :inet.setopts(state.sock, active: :once)
-    [_, hn] = String.split(path, "/")
     _ = Logger.debug("Received POST request for hostname #{hn}")
     init_state = init_state(state.sock)
     {:noreply, %{init_state | request: {:POST, hn}}}
