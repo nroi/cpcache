@@ -12,8 +12,8 @@ ipv6_enabled = true
 
 # The selection method to choose a mirror. Valid values are:
 #   "auto": In order to attempt to find suitable mirrors automatically.
-#           With this method, latency tests are run on the official mirrors and
-#           one mirror with low latency will be chosen.
+#           With this method, performance tests are run on the official mirrors
+#           to select only sufficiently fast mirrors.
 #   "predefined": To only choose the mirrors defined for the variable
 #                 mirrors_predefined (see below).
 mirror_selection_method = "auto"
@@ -50,7 +50,7 @@ mirrors_blacklist = []
     # https://www.archlinux.org/mirrors/status/ for an explanation of this
     # metric.
     max_score = 2.5
-    # timeout, in milliseconds, when testing the mirrors' latencies.
+    # timeout, in milliseconds, when testing the mirrors' performance.
     # Mirros which exceed the timeout will not be considered further, regardless
     # of their score.
     timeout = 500
