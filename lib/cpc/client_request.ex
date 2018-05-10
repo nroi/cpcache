@@ -602,6 +602,7 @@ defmodule Cpc.ClientRequest do
         {:ok, file} = File.open(filename, [:write])
         :ok = IO.write(file, content)
         :ok = File.close(file)
+        Logger.info("Successfully written file #{filename} for host #{hn}")
     end
 
     {:stop, :normal, new_state}
