@@ -69,10 +69,8 @@ systemctl enable cpcache.service
 Set the new mirror in `/etc/pacman.d/mirrorlist` on all clients. For instance, if the server running
 cpcache can be reached via `alarm.local`, add the following to the beginning of the mirrorlist file:
 ```bash
-Server = http://alarm.local:7070/$repo/os/$arch # !cpcache
+Server = http://alarm.local:7070/$repo/os/$arch
 ```
-The `!cpcache` comment is required only if you use [clyde](https://github.com/nroi/clyde-server).
-
 
 ## Configuration
 
