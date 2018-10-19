@@ -7,7 +7,7 @@ defmodule Cpc.TableAccess do
   end
 
   def create_table(table) do
-    fname = filename(table)
+    fname = to_charlist(filename(table))
     case :dets.open_file(fname, [type: :set, repair: :false]) do
       {:ok, _} ->
         :ok
