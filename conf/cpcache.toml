@@ -5,6 +5,8 @@
 cache_directory = "/var/cache/cpcache"
 
 # The port to listen on.
+# TODO Perhaps change it to some other port, like 7038. 7070 is already
+# reserved.
 port = 7070
 
 # Bind to an IPv6 address, in addition to an IPv4 address.
