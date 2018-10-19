@@ -30,10 +30,10 @@ defmodule Cpc.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:distillery, "~> 1.5"},
-      {:hackney, "~> 1.11"},
+      {:distillery, "~> 2.0"},
+      {:hackney, "~> 1.14"},
       {:jerry, "~> 0.1.4"},
-      {:jason, "~> 1.0"}
+      {:jason, "~> 1.1"}
     ]
   end
 end
