@@ -3,11 +3,11 @@ defmodule Cpc.TableAccess do
 
   def filename(table) do
     [{:cache_directory, cache_directory}] = :ets.lookup(:cpc_config, :cache_directory)
-    Path.join([cache_directory, "state", table])
+    to_charlist(Path.join([cache_directory, "state", table]))
   end
 
   def create_table(table) do
-    fname = to_charlist(filename(table))
+    fname = filename(table)
     case :dets.open_file(fname, [type: :set, repair: :false]) do
       {:ok, _} ->
         :ok
