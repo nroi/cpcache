@@ -38,7 +38,7 @@ let's compare cpcache with each of them.
   pacserve and paccache are distributed while cpcache is centralized. A distributed solution is your
   only option if you don't have a device in your LAN which is running 24/7. If, on the other hand, you
   do have such a device, you may prefer a centralized solution that keeps all your cached packages
-  at one place. This allows you to just set pacman's `CacheDir` to `/tmp` instead of storing
+  at one place. This allows you to just set pacman's `CacheDir` to a tmpfs instead of storing
   packages redundantly. Also, packages that are cached once are always available, not only if the
   machine that cached it happens to be online.
 * Reverse proxy cache using NGINX: Apart from the fact that cpcache can utilize the full bandwidth
@@ -79,6 +79,7 @@ configuration file from `conf/cpcache.toml` to `/etc/cpcache/cpcache.toml` and a
 
 
 ## Setup with NGINX
+
 In case you want to use NGINX as reverse proxy, keep in mind that it uses caching by default, which
 will cause timeouts in pacman since downloads then require a few seconds to start. Use
 `proxy_buffering off;` to prevent this.
@@ -98,3 +99,26 @@ server {
     }
 }
 ```
+
+## Setting pacman cache to a tmpfs
+
+In case you want to avoid storing packages redundantly you can set the `CacheDir` in your pacman.conf to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs). This will clear the pacakge cache when shutting down. More information about these methods can be found [here](https://github.com/nroi/cpcache/pull/4#issuecomment-431595309).
+
+### Method 1
+
+Add `CacheDir = tmp/pacman/pkg` in `/etc/pacman.conf`. 
+
+NOTE: This may produce warnings when the directory does not exist.
+
+### Method 2
+
+This will create a new tmpfs instead of using `/tmp`
+
+Add  this line to your `/etc/fstab` file:
+```
+tmpfs  /var/cache/pacman/pkg  tmpfs  nodev,nosuid,size=2G  0  0
+```
+
+You can customize the size of the tmpfs by modifying `size=2G`.
+
+To mount the new tmpfs you just need to run `mount -a` **as root**. The tmpfs will be mounted automatically on every boot.
