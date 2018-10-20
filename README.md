@@ -121,4 +121,4 @@ warning: no /tmp/pacman_cache/ cache exists, creating...
 ```
 
 and create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
-this warning, you might consider adadpting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
+this warning, you might consider adapting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
