@@ -102,7 +102,17 @@ server {
 
 ## Setting pacman cache to a tmpfs
 
-In case you want to avoid storing packages redundantly you can set the `CacheDir` in your pacman.conf to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs). This will clear the pacakge cache when shutting down.
+In case you want to avoid storing packages redundantly you can set the `CacheDir` in your pacman.conf to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs). This will clear the pacakge cache when shutting down. More information about these methods can be found [here](https://github.com/nroi/cpcache/pull/4#issuecomment-431595309).
+
+### Method 1
+
+Add `CacheDir = tmp/pacman/pkg` in `/etc/pacman.conf`. 
+
+NOTE: This may produce warnings when the directory does not exist.
+
+### Method 2
+
+This will create a new tmpfs instead of using `/tmp`
 
 Add  this line to your `/etc/fstab` file:
 ```
