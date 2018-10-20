@@ -102,23 +102,23 @@ server {
 
 ## Setting pacman cache to a tmpfs
 
-In case you want to avoid storing packages redundantly you can set the `CacheDir` in your pacman.conf to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs). This will clear the pacakge cache when shutting down. More information about these methods can be found [here](https://github.com/nroi/cpcache/pull/4#issuecomment-431595309).
+In case you want to avoid storing packages redundantly (i.e., both on the client and on the server running `cpcache`),
+you can set the `CacheDir` in your pacman.conf to a subdirectory of `/tmp`.
+`/tmp` is set to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs) by default, meaning the package cache
+will be cleared when shutting down.
 
-### Method 1
+Simply edit your `/etc/pacman.conf` and adapt the `CacheDir` setting. For instance:
 
-Add `CacheDir = tmp/pacman/pkg` in `/etc/pacman.conf`. 
-
-NOTE: This may produce warnings when the directory does not exist.
-
-### Method 2
-
-This will create a new tmpfs instead of using `/tmp`
-
-Add  this line to your `/etc/fstab` file:
-```
-tmpfs  /var/cache/pacman/pkg  tmpfs  nodev,nosuid,size=2G  0  0
+```bash
+CacheDir = /tmp/pacman_cache
 ```
 
-You can customize the size of the tmpfs by modifying `size=2G`.
+Notice that the directory `/tmp/pacman_cache` does not exist yet, and even if you were to create it, it would not
+survive a reboot. Pacman will therefore emit a warning:
 
-To mount the new tmpfs you just need to run `mount -a` **as root**. The tmpfs will be mounted automatically on every boot.
+```
+warning: no /tmp/pacman_cache/ cache exists, creating...
+```
+
+And create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
+this warning, you might consider adadpting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
