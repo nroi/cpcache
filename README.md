@@ -132,21 +132,21 @@ TODO provide a docker image.
 ### Requirements
 Install the following packages:
 
-    pacman -S git elixir sudo
+    # pacman -S git elixir sudo
 
 Set up the cpcache user with write permissions:
 
-    useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache
-    mkdir -p /var/cache/cpcache/pkg/{core,extra,multilib,testing,community}/os/x86_64
-    mkdir -p /var/cache/cpcache/state
-    chown -R cpcache:cpcache "/var/cache/cpcache"
+    # useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache
+    # mkdir -p /var/cache/cpcache/pkg/{core,extra,multilib,testing,community}/os/x86_64
+    # mkdir -p /var/cache/cpcache/state
+    # chown -R cpcache:cpcache "/var/cache/cpcache"
     
 Clone the repository and fetch all dependencies:
 
-    sudo -u cpcache -i
-    sudo -u cpcache git clone https://github.com/nroi/cpcache
-    sudo -u cpcache mix local.hex --force
-    sudo -u cpcache mix local.rebar --force
-    sudo -u cpcache cd cpcache
-    sudo -u cpcache mix deps.get
+    # sudo -u cpcache -i
+    $ git clone https://github.com/nroi/cpcache
+    $ mix local.hex --force
+    $ mix local.rebar --force
+    $ cd cpcache
+    $ mix deps.get
 
