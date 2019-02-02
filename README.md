@@ -122,3 +122,39 @@ warning: no /tmp/pacman_cache/ cache exists, creating...
 
 and create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
 this warning, you might consider adapting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
+
+## Build
+
+Maybe you want to change the source code or not use PKGBUILD from AUR for some reason. In that case, here's how to build cpcache yourself.
+
+TODO provide a docker image.
+
+### Requirements
+Install the following packages:
+
+    # pacman -S git elixir sudo
+
+Set up the cpcache user with all required directories and permissions:
+
+    # useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache
+    # mkdir -p /var/cache/cpcache/pkg/{core,extra,multilib,testing,community}/os/x86_64
+    # mkdir -p /var/cache/cpcache/state
+    # mkdir /etc/cpcache
+    # chown -R cpcache:cpcache "/var/cache/cpcache"
+    
+Clone the repository and fetch all dependencies:
+
+    # sudo -u cpcache -i
+    $ git clone https://github.com/nroi/cpcache
+    $ mix local.hex --force
+    $ mix local.rebar --force
+    $ cd cpcache
+    $ mix deps.get
+
+`cpcache` requires a config file in `/etc/cpcache`:
+
+    # cp /var/lib/cpcache/cpcache/conf/cpcache.toml  /etc/cpcache/
+    
+Finally, you can run `cpcache` as its own user (i.e., run `sudo -u cpcache -i` before running this command):
+
+    $ iex -S mix
