@@ -140,7 +140,6 @@ Set up the cpcache user with write permissions:
     mkdir -p /var/cache/cpcache/pkg/{core,extra,multilib,testing,community}/os/x86_64
     mkdir -p /var/cache/cpcache/state
     chown -R cpcache:cpcache "/var/cache/cpcache"
-    chown cpcache:cpcache "/var/lib/cpcache"
     
 Clone the repository and fetch all dependencies:
 
