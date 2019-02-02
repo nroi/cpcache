@@ -142,6 +142,7 @@ Set up the cpcache user with write permissions:
     chown -R cpcache:cpcache "/var/cache/cpcache"
     
 Clone the repository and fetch all dependencies:
+
     sudo -u cpcache -i
     sudo -u cpcache git clone https://github.com/nroi/cpcache
     sudo -u cpcache mix local.hex --force
