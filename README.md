@@ -125,13 +125,28 @@ this warning, you might consider adapting your `/etc/fstab` to create a second t
 
 ## Build
 
-Whether you want to change the source code or not use PKGBUILD from AUR for some reason, here's how to build cpcache yourself.
+Maybe you want to change the source code or not use PKGBUILD from AUR for some reason. In that case, here's how to build cpcache yourself.
 
 TODO provide a docker image.
 
 ### Requirements
 Install the following packages:
 
-    pacman -S git elixir
+    pacman -S git elixir sudo
+
+Set up the cpcache user with write permissions:
+
+    useradd -r -s /bin/bash -m cpcache
+    mkdir -p /var/cache/cpcache/pkg/{core,extra,multilib,testing,community}/os/x86_64
+    mkdir -p /var/cache/cpcache/state
+    chown -R cpcache:cpcache "/var/cache/cpcache"
+    chown cpcache:cpcache "/var/lib/cpcache"
     
-    
+Clone the repository and fetch all dependencies:
+
+    sudo -u cpcache git clone https://github.com/nroi/cpcache
+    sudo -u cpcache mix local.hex --force
+    sudo -u cpcache mix local.rebar --force
+    sudo -u cpcache cd cpcache
+    sudo -u cpcache mix deps.get
+
