@@ -22,7 +22,7 @@ defmodule Cpc do
   end
 
   def init_config() do
-    config = Jerry.decode!(File.read!(@config_path))
+    {:ok, config} = Toml.decode(File.read!(@config_path))
     :ets.new(:cpc_config, [:named_table, :protected, read_concurrency: true])
     :ets.new(:cpc_state, [:named_table, :public])
     :ets.insert(:cpc_config, {:port, get_or_raise(config, "port")})
