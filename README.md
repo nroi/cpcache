@@ -122,3 +122,16 @@ warning: no /tmp/pacman_cache/ cache exists, creating...
 
 and create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
 this warning, you might consider adapting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
+
+## Build
+
+Whether you want to change the source code or not use PKGBUILD from AUR for some reason, here's how to build cpcache yourself.
+
+TODO provide a docker image.
+
+### Requirements
+Install the following packages:
+
+    pacman -S git elixir
+    
+    
