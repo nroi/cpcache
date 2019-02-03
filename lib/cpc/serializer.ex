@@ -64,7 +64,7 @@ defmodule Cpc.Serializer do
 
   def handle_info({:DOWN, ref, :process, pid, status}, pidfnref) do
     :erlang.demonitor(ref)
-    _ = Logger.warn("Process is down, remove from list of downloading processes.")
+    _ = Logger.debug("Process is down, remove from list of downloading processes.")
 
     ongoing_downloads =
       Enum.filter(pidfnref, fn
