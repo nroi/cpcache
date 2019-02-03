@@ -21,8 +21,6 @@ defmodule Cpc.MirrorSelector do
   # this mirror, and restart the download from a non-greylisted mirror. make sure that, in case the
   # internet connection is just slow, we don't populate the greylist with all mirrors: perhaps we
   # should limit the greylist to not more than half of the filtered mirrors.
-  # TODO implement the feature to swap the server while it's downloading, if the download is too
-  # slow: this feature would be really awesome!
 
   def init(nil) do
     # Start with the predefined mirrors. We will add "better" mirrors later, but for now, we want to
