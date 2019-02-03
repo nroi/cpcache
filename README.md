@@ -125,9 +125,9 @@ this warning, you might consider adapting your `/etc/fstab` to create a second t
 
 ## Build
 
-Maybe you want to change the source code or not use PKGBUILD from AUR for some reason. In that case, here's how to build cpcache yourself.
-
-TODO provide a docker image.
+Maybe you want to modify the source code or not use PKGBUILD from AUR for some reason. You can either check the
+[Dockerfile](docker/Dockerfile) to have cpcache running inside a container, or follow these steps to build and
+run cpcache on your own machine:
 
 ### Requirements
 Install the following packages:
