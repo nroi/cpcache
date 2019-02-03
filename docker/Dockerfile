@@ -2,7 +2,7 @@ FROM base/archlinux
 
 EXPOSE 7070
 
-# Elixir emits warnings when an encoding other than UTF is set:
+# Elixir emits warnings when an encoding other than UTF8 is set:
 RUN echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen && \
     locale-gen
 ENV LANG en_US.UTF-8
