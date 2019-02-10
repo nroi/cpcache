@@ -226,6 +226,7 @@ defmodule Cpc.Downloader do
 
       :done ->
         :ok = File.close(file)
+        :ok = :hackney.close(client)
 
       m = {:error, _reason} ->
         m
