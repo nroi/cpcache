@@ -226,7 +226,8 @@ defmodule Cpc.Downloader do
 
       :done ->
         :ok = File.close(file)
-        :ok = :hackney.close(client)
+        # Apparently, hackney closes the socket automatically when :done is sent. Explicitly closing the client
+        # at this point would result in an error.
 
       m = {:error, _reason} ->
         m
