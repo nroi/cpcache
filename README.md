@@ -125,12 +125,22 @@ this warning, you might consider adapting your `/etc/fstab` to create a second t
 
 ## Build
 
-Maybe you want to modify the source code or not use PKGBUILD from AUR for some reason. You can either check the
-[Dockerfile](docker/Dockerfile) to have cpcache running inside a container, or follow these steps to build and
-run cpcache on your own machine:
+Using the PKGBUILD from AUR is probably the easiest way to get cpcache up and running. But If you want to
+build cpcache on your own machine, you can do so by either using Docker, or by installing Elixir
+and running cpcache with Elixir's build tool, mix.
 
-### Requirements
-Install the following packages:
+### Docker
+
+    cd docker
+    docker-compose up
+
+Notice that all downloaded files will then be stored inside the container, so if you're using Docker
+for more than just testing purposes, consider running the docker container with
+[bind-mounts](https://docs.docker.com/storage/bind-mounts/) or [volumes](https://docs.docker.com/storage/volumes/).
+
+### Mix
+
+Install the following requirements first:
 
     # pacman -S git elixir sudo
 
