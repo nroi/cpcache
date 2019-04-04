@@ -34,8 +34,8 @@ let's compare cpcache with each of them.
   if you were downloading them directly from the remote mirror, while also making them available for
   subsequent requests.
 * Read-write caches such as [pacserve](https://wiki.archlinux.org/index.php/Pacserve) or
-  [paccache](https://github.com/eworm-de/paccache):
-  pacserve and paccache are distributed while cpcache is centralized. A distributed solution is your
+  [pacredir](https://github.com/eworm-de/pacredir#pacredir):
+  pacserve and pacredir are distributed while cpcache is centralized. A distributed solution is your
   only option if you don't have a device in your LAN which is running 24/7. If, on the other hand, you
   do have such a device, you may prefer a centralized solution that keeps all your cached packages
   at one place. This allows you to just set pacman's `CacheDir` to a tmpfs instead of storing
