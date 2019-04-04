@@ -123,6 +123,16 @@ warning: no /tmp/pacman_cache/ cache exists, creating...
 and create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
 this warning, you might consider adapting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
 
+# Cleaning the package cache
+
+`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old packages. For instance, if you use the default directory for storing your packages (`/var/cache/cpcache`), the following will delete all packages except for the three most recent versions:
+
+```bash
+for cache_dir in /var/cache/cpcache/pkg/{community,core,extra,testing,multilib}/os/x86_64/; do
+  paccache -k3 -c $cache_dir
+done
+```
+
 ## Build
 
 Using the PKGBUILD from AUR is probably the easiest way to get cpcache up and running. But If you want to
