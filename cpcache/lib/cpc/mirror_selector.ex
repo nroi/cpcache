@@ -202,7 +202,8 @@ defmodule Cpc.MirrorSelector do
     |> Enum.map(&test_mirror/1)
     successes = for {:ok, {url, latency}} <- results, do: {url, latency}
 
-    Enum.sort_by(successes, fn {_url, latency} -> latency end)
+    successes
+    |> Enum.sort_by(fn {_url, latency} -> latency end)
     |> Enum.map(fn {url, _latency} -> url end)
   end
 end
