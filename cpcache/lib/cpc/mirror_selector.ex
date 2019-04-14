@@ -146,10 +146,16 @@ defmodule Cpc.MirrorSelector do
       end)
     end
 
-    for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors,
+    sorter = case settings.mirrors_random_or_sort do
+      "random" -> &Enum.shuffle(&1)
+      "sort" -> &Enum.sort_by(&1, fn %{"score" => score} -> score end)
+    end
+
+    for %{"protocol" => protocol, "url" => url, "score" => score} <- sorter.(mirrors),
         score <= settings.max_score && test_blacklist.(url) && test_https.(protocol) do
       url
     end
+
   end
 
   def fetch_latencies(_url, mirror, i, num_iterations, latencies, _timeout)
@@ -168,7 +174,7 @@ defmodule Cpc.MirrorSelector do
   end
 
   def test_mirror(mirror) do
-    Logger.debug("test #{inspect(mirror)}")
+    Logger.debug("Run latency test for: #{inspect(mirror)}")
     url = "#{mirror}core/os/x86_64/core.db"
     settings = get_mirror_settings()
     fetch_latencies(url, mirror, 0, 5, [], settings.timeout)
@@ -181,6 +187,7 @@ defmodule Cpc.MirrorSelector do
 
   def sorted_mirrors(json) do
     save_mirror_status_to_cache(json)
+    settings = get_mirror_settings()
 
     mirrors =
       Enum.filter(json["urls"], fn
@@ -189,7 +196,10 @@ defmodule Cpc.MirrorSelector do
         %{"protocol" => _} -> false
       end)
 
-    results = Enum.map(filter_mirrors(mirrors), fn mirror -> test_mirror(mirror) end)
+    results = mirrors
+    |> filter_mirrors
+    |> Enum.take(settings.num_mirrors)
+    |> Enum.map(&test_mirror/1)
     successes = for {:ok, {url, latency}} <- results, do: {url, latency}
 
     Enum.sort_by(successes, fn {_url, latency} -> latency end)

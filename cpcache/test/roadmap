@@ -1,0 +1,7 @@
+1. implement zeroserve:
+    useful so that we don't need a vserver.
+    - serve files with the given size and speed
+
+2. test the download partially from cache, partially from http download:
+    write a supervisor which kills its child once it has downloaded the required
+    amount.

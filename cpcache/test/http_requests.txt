@@ -1,0 +1,7 @@
+GET /core/os/x86_64/core.db HTTP/1.1
+GET /extra/os/x86_64/extra.db HTTP/1.1
+GET /community/os/x86_64/community.db HTTP/1.1
+GET /multilib/os/x86_64/multilib.db HTTP/1.1\r\n
+
+GET /extra/os/x86_64/gcr-3.28.0-2-x86_64.pkg.tar.xz HTTP/1.1
+GET /community/os/x86_64/brotli-1.0.4-1-x86_64.pkg.tar.xz HTTP/1.1\r\n

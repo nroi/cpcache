@@ -16,12 +16,13 @@ RUN useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache && \
     chown -R cpcache:cpcache "/var/cache/cpcache"
 
 WORKDIR /var/lib/cpcache
-RUN sudo -u cpcache git clone https://github.com/nroi/cpcache && \
-    sudo -u cpcache mix local.hex --force && \
+
+COPY --chown=cpcache:cpcache cpcache /var/lib/cpcache/
+
+RUN sudo -u cpcache mix local.hex --force && \
     sudo -u cpcache mix local.rebar --force && \
-    sudo -u cpcache sh -c "cd cpcache && mix deps.get && mix compile" && \
-    cp /var/lib/cpcache/cpcache/conf/cpcache.toml /etc/cpcache/
+    sudo -u cpcache sh -c "mix deps.get && mix compile" && \
+    cp /var/lib/cpcache/conf/cpcache.toml /etc/cpcache/
 
 USER cpcache
-WORKDIR /var/lib/cpcache/cpcache
 ENTRYPOINT iex -S mix
