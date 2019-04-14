@@ -119,21 +119,9 @@ defmodule Cpc.MirrorSelector do
   end
 
   def json_from_remote() do
-    # FIXME workaround for buggy dual stack connections. See the comment for
-    # Downloader.supports_ip_protocol/2
-    address_family =
-      case Cpc.Downloader.supports_ipv6(@json_path) do
-        true -> :inet6
-        false -> :inet
-      end
 
-    opts = [
-      {:connect_options, [address_family]},
-      {:ssl_options, [{:log_alert, false}]},
-      []
-    ]
-
-    with {:ok, 200, _headers, client} <- :hackney.request(:get, @json_path, [], "", opts) do
+    # TODO use eyepatch
+    with {:ok, 200, _headers, client} <- :hackney.request(:get, @json_path, [], "", []) do
       with {:ok, body} <- :hackney.body(client) do
         Jason.decode(body)
       end
@@ -143,24 +131,6 @@ defmodule Cpc.MirrorSelector do
   def filter_mirrors(mirrors) do
     settings = get_mirror_settings()
 
-    test_ipv4_protocol = fn url ->
-      case settings.ipv4 do
-        true -> Cpc.Downloader.supports_ipv4(url)
-        false -> true
-      end
-    end
-
-    test_ipv6_protocol = fn url ->
-      case settings.ipv6 do
-        true -> Cpc.Downloader.supports_ipv6(url)
-        false -> true
-      end
-    end
-
-    test_protocols = fn url ->
-      test_ipv4_protocol.(url) && test_ipv6_protocol.(url)
-    end
-
     test_https = fn protocol ->
       case settings.https_required do
         true -> protocol == "https"
@@ -169,7 +139,6 @@ defmodule Cpc.MirrorSelector do
     end
 
     [mirrors_blacklist: blacklist] = :ets.lookup(:cpc_config, :mirrors_blacklist)
-    # test_blacklist = &(!Enum.member?(blacklist, &1))
 
     test_blacklist = fn url ->
       !Enum.any?(blacklist, fn blacklisted ->
@@ -178,8 +147,7 @@ defmodule Cpc.MirrorSelector do
     end
 
     for %{"protocol" => protocol, "url" => url, "score" => score} <- mirrors,
-        score <= settings.max_score && test_blacklist.(url) && test_https.(protocol) &&
-          test_protocols.(url) do
+        score <= settings.max_score && test_blacklist.(url) && test_https.(protocol) do
       url
     end
   end

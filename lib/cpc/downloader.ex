@@ -1,6 +1,4 @@
 defmodule Cpc.Downloader do
-  # check IPv6 support again after 14 days.
-  @validity 60 * 60 * 24 * 14
   require Logger
   use GenServer
   alias Cpc.Utils
@@ -95,80 +93,6 @@ defmodule Cpc.Downloader do
     :ok
   end
 
-  def supports_ip_protocol(version, url) when version == :ipv4 or version == :ipv6 do
-    # FIXME this function probably wouldn't be necessary if hackney supported happy eyeballs:
-    # https://github.com/benoitc/hackney/issues/206
-    host =
-      case :http_uri.parse(url) do
-        {:ok, {_, _, host, _, _, _}} -> host
-      end
-
-    # Rather than just testing if the server has an AAAA record set, we actually want to find out if
-    # it successfully replies to a GET request. Experience shows that some servers have their AAAA
-    # record set and still won't allow clients to connect via IPv6, e.g. due to connection timeouts.
-    table_name =
-      case version do
-        :ipv4 -> "ipv4_support"
-        :ipv6 -> "ipv6_support"
-      end
-
-    db_result = TableAccess.get(table_name, host)
-
-    prev_supported =
-      case db_result do
-        {:error, :not_found} ->
-          :unknown
-
-        {:ok, {then, supported_then}} ->
-          now = :os.system_time(:second)
-          diff = now - then
-          expired = diff >= @validity
-
-          if expired do
-            :unknown
-          else
-            supported_then
-          end
-      end
-
-    case prev_supported do
-      :unknown ->
-        _ = Logger.debug("Send HEAD request to test for #{version} support.")
-
-        address_family =
-          case version do
-            :ipv4 -> :inet
-            :ipv6 -> :inet6
-          end
-
-        opts = [connect_options: [address_family], connect_timeout: 2000]
-
-        support =
-          case :hackney.request(:head, url, [], "", opts) do
-            {:ok, _, _} -> true
-            _ -> false
-          end
-
-        TableAccess.add(table_name, host, {:os.system_time(:second), support})
-
-        support
-
-      false ->
-        false
-
-      true ->
-        true
-    end
-  end
-
-  def supports_ipv6(url) do
-    supports_ip_protocol(:ipv6, url)
-  end
-
-  def supports_ipv4(url) do
-    supports_ip_protocol(:ipv4, url)
-  end
-
   def handle_redirect(_headers, _request, 21) do
     raise "20 redirections exceeded."
   end
@@ -242,24 +166,13 @@ defmodule Cpc.Downloader do
         rs -> [{"Range", "bytes=#{rs}-"}]
       end
 
-    # checking for IPv6 support will increase latency in some cases. Also, it has little use for
-    # those with proper dual stack (i.e., anything other than dual stack lite). Perhaps we should
-    # just remove this.
-    opts =
-      if supports_ipv6(request.url) do
-        _ = Logger.debug("Use IPv6 for url #{request.url}")
-        [connect_options: [:inet6]]
-      else
-        _ = Logger.debug("Use IPv4 for url #{request.url}")
-        []
-      end
-
     _ =
       Logger.debug(
-        "GET #{inspect(request.url)} with headers #{inspect(headers)} and opts #{inspect(opts)}"
+        "GET #{inspect(request.url)} with headers #{inspect(headers)}"
       )
 
-    case :hackney.request(:get, request.url, headers, "", opts) do
+    # TODO use eyepatch.
+    case :hackney.request(:get, request.url, headers, "", []) do
       {:ok, status, headers, client} ->
         case status do
           200 ->

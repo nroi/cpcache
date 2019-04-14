@@ -34,6 +34,7 @@ defmodule Cpc.Mixfile do
       {:hackney, "~> 1.14"},
       {:toml, "~> 0.5.2"},
       {:jason, "~> 1.1"},
+      {:eyepatch, git: "https://github.com/nroi/eyepatch.git"},
     ]
   end
 end
