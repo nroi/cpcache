@@ -182,10 +182,10 @@ defmodule Cpc.MirrorSelector do
     end
   end
 
-  def hackney_head_dual_stack(url) do
+  def hackney_head_dual_stack(url, connect_timeout) do
     request_hackney_inet = &request_hackney(:head, &1, &2, :inet, &3, &4)
     request_hackney_inet6 = &request_hackney(:head, &1, &2, :inet6, &3, &4)
-    Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6)
+    Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, [], connect_timeout)
   end
 
   def fetch_latencies(_url, mirror, i, num_iterations, latencies, _timeout)
@@ -196,7 +196,7 @@ defmodule Cpc.MirrorSelector do
   def fetch_latencies(url, mirror, i, num_iterations, latencies, timeout) do
     then = :erlang.timestamp()
 
-    with {:ok, 200, _headers} <- :hackney.request(:head, url, [], "", connect_timeout: timeout) do
+    with {:ok, _result} <- hackney_head_dual_stack(url, timeout) do
       now = :erlang.timestamp()
       diff = :timer.now_diff(now, then)
       fetch_latencies(url, mirror, i + 1, num_iterations, [diff | latencies], timeout)
