@@ -27,6 +27,7 @@ defmodule Cpc.Downloader do
         raise("Downloader process failed with reason #{inspect reason}")
 
       {:content_length, cl} ->
+        Process.demonitor(ref, [:flush])
         {:ok, %{content_length: cl, downloader_pid: pid}}
 
       err = {:error, _reason} ->
@@ -35,6 +36,7 @@ defmodule Cpc.Downloader do
             err
 
           _ ->
+            Process.demonitor(ref, [:flush])
             try_all(fallbacks, save_to, start_from)
         end
     end
@@ -141,28 +143,30 @@ defmodule Cpc.Downloader do
   end
 
   def handle_failure(reason, client, request) do
+    _ = Logger.error("Error while handling HTTP request: #{inspect reason}")
     :ok = :hackney.close(client)
     handle_failure(reason, request)
   end
 
   def handle_failure(reason, request) do
     send(request.receiver, {:error, reason})
-    :ok = Logger.warn("Download of URL #{request.url} has failed: #{reason}")
   end
 
   def download(client, file) do
+    _ = Logger.debug("download()")
     case :hackney.stream_body(client) do
       {:ok, result} ->
         IO.binwrite(file, result)
         download(client, file)
 
       :done ->
+        _ = Logger.debug("Closing file.")
         :ok = File.close(file)
         # Apparently, hackney closes the socket automatically when :done is sent. Explicitly closing the client
         # at this point would result in an error.
 
-      m = {:error, _reason} ->
-        m
+      {:error, reason} ->
+        raise("Error while downloading file: #{inspect reason}")
     end
   end
 
@@ -179,8 +183,10 @@ defmodule Cpc.Downloader do
         "GET #{inspect(request.url)} with headers #{inspect(headers)}"
       )
 
+    Logger.debug("Attempt to fetch file: #{request.url}")
     case hackney_get_dual_stack(request.url, headers) do
       {:ok, {_protocol, _ip_address, status, headers, client}} ->
+        Logger.debug("Status is: #{inspect status}")
         case status do
           200 ->
             handle_success(headers, client, request)
@@ -208,6 +214,7 @@ defmodule Cpc.Downloader do
         end
 
       {:error, reason} ->
+        Logger.debug("Error, cannot fetch file: #{inspect reason}")
         handle_failure(reason, request)
     end
   end
