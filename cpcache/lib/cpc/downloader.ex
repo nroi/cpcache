@@ -16,8 +16,16 @@ defmodule Cpc.Downloader do
 
   def try_all([url | fallbacks], save_to, start_from \\ nil) do
     {:ok, pid} = start_link(url, save_to, self(), start_from)
+    ref = Process.monitor(pid)
 
     receive do
+      {:DOWN, ^ref, _, _, reason} ->
+        # Notice that we raise instead of just returning {:error, reason}.
+        # This is due to the fact that the process exiting is most likely due to a bug in the Downloader process,
+        # and not some problem with the mirror. By raising, the client_request process exits and returns 500, instead
+        # of just returning 404.
+        raise("Downloader process failed with reason #{inspect reason}")
+
       {:content_length, cl} ->
         {:ok, %{content_length: cl, downloader_pid: pid}}
 
@@ -171,9 +179,8 @@ defmodule Cpc.Downloader do
         "GET #{inspect(request.url)} with headers #{inspect(headers)}"
       )
 
-    # TODO use eyepatch.
-    case :hackney.request(:get, request.url, headers, "", []) do
-      {:ok, status, headers, client} ->
+    case hackney_get_dual_stack(request.url, headers) do
+      {:ok, {_protocol, _ip_address, status, headers, client}} ->
         case status do
           200 ->
             handle_success(headers, client, request)
@@ -203,6 +210,40 @@ defmodule Cpc.Downloader do
       {:error, reason} ->
         handle_failure(reason, request)
     end
+  end
+
+  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers) when method == :get or method == :head do
+    ip_address = :inet.ntoa(ip_address)
+
+    # TODO disabling SSL verification is a workaround made necessary because we connect to IP addresses, not hostnames:
+    # If we supply the string "https://<ip-address>" to hackney, the SSL routine will verify if the certificate has
+    # been issued to <ip-address>, but certificates are issued to host names, not IP addresses.
+    opts = [connect_timeout: connect_timeout, ssl_options: [{:verify, :verify_none}]]
+    headers = [{"Host", to_string(uri.host)} | headers]
+    uri = %URI{uri | host: to_string(ip_address)} |> URI.to_string()
+    Logger.debug("Attempt to connect to URI: #{inspect(uri)}")
+
+    case :hackney.request(method, uri, headers, "", opts) do
+      {:ok, status, headers} ->
+        Logger.debug("Successfully connected to #{uri}")
+        # protocol is included in the response for logging purposes, so that we can evaluate
+        # how often the connection is made via IPv4 and IPv6.
+        {:ok, {protocol, ip_address, status, headers}}
+
+      {:ok, status, headers, client} ->
+        {:ok, {protocol, ip_address, status, headers, client}}
+
+      {:error, reason} ->
+        Logger.warn("Error while attempting to connect to #{uri}: #{inspect(reason)}")
+        {:error, {protocol, ip_address, reason}}
+    end
+
+  end
+
+  def hackney_get_dual_stack(url, headers) do
+    request_hackney_inet = &request_hackney(:get, &1, &2, :inet, &3, &4)
+    request_hackney_inet6 = &request_hackney(:get, &1, &2, :inet6, &3, &4)
+    Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, headers, nil)
   end
 
   def handle_info(:init, {url, save_to, receiver, start_from}) do

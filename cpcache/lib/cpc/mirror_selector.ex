@@ -1,6 +1,7 @@
 defmodule Cpc.MirrorSelector do
   use GenServer
   alias Cpc.TableAccess
+  alias Cpc.Downloader
   require Logger
   @json_path "https://www.archlinux.org/mirrors/status/json/"
   @retry_after 5000
@@ -158,33 +159,9 @@ defmodule Cpc.MirrorSelector do
 
   end
 
-  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers) when method == :get or method == :head do
-    ip_address = :inet.ntoa(ip_address)
-
-    # TODO disabling SSL verification is a workaround made necessary because we connect to IP addresses, not hostnames:
-    # If we supply the string "https://<ip-address>" to hackney, the SSL routine will verify if the certificate has
-    # been issued to <ip-address>, but certificates are issued to host names, not IP addresses.
-    opts = [connect_timeout: connect_timeout, ssl_options: [{:verify, :verify_none}]]
-    headers = [{"Host", to_string(uri.host)} | headers]
-    uri = %URI{uri | host: to_string(ip_address)} |> URI.to_string()
-    Logger.debug("Attempt to connect to URI: #{inspect(uri)}")
-
-    case :hackney.request(method, uri, headers, "", opts) do
-      {:ok, client, headers} ->
-        Logger.debug("Successfully connected to #{uri}")
-        # protocol is included in the response for logging purposes, so that we can evaluate
-        # how often the connection is made via IPv4 and IPv6.
-        {:ok, {protocol, ip_address, client, headers}}
-
-      {:error, reason} ->
-        Logger.warn("Error while attempting to connect to #{uri}: #{inspect(reason)}")
-        {:error, {protocol, ip_address, reason}}
-    end
-  end
-
   def hackney_head_dual_stack(url, connect_timeout) do
-    request_hackney_inet = &request_hackney(:head, &1, &2, :inet, &3, &4)
-    request_hackney_inet6 = &request_hackney(:head, &1, &2, :inet6, &3, &4)
+    request_hackney_inet = &Downloader.request_hackney(:head, &1, &2, :inet, &3, &4)
+    request_hackney_inet6 = &Downloader.request_hackney(:head, &1, &2, :inet6, &3, &4)
     Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, [], connect_timeout)
   end
 
