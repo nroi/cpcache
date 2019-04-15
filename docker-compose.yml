@@ -2,5 +2,4 @@ version: '3.6'
 services:
   cpcache:
     build: .
-    ports:
-     - "7070:7070"
+    network_mode: host
