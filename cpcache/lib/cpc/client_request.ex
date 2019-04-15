@@ -743,8 +743,8 @@ defmodule Cpc.ClientRequest do
     ^content_length = File.stat!(n).size
   end
 
-  def terminate(status, state = %CR{sock: sock, sent_header: sent_header, downloader_pid: pid}) do
-    case status do
+  def terminate(reason, state = %CR{sock: sock, sent_header: sent_header, downloader_pid: pid}) do
+    case reason do
       :normal ->
         :ok
 
