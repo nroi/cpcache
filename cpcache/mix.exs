@@ -31,10 +31,10 @@ defmodule Cpc.Mixfile do
   defp deps do
     [
       {:distillery, "~> 2.0"},
-      {:hackney, "~> 1.14"},
+      {:hackney, "~> 1.15"},
       {:toml, "~> 0.5.2"},
       {:jason, "~> 1.1"},
-      {:eyepatch, git: "https://github.com/nroi/eyepatch.git"},
+      {:eyepatch, git: "https://github.com/nroi/eyepatch.git", tag: "v0.1.3"},
     ]
   end
 end
