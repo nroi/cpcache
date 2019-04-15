@@ -40,7 +40,6 @@ defmodule Cpc.Filewatcher do
         {:stop, :normal, nil}
 
       new_size when new_size > prev_size ->
-        _ = Logger.debug("File size has increased.")
         # If this is the first time the start_size threshold was exceeded, we report start_size as
         # the previous size.
         clean_prev_size = max(start_size, prev_size)

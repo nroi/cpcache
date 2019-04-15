@@ -160,8 +160,8 @@ defmodule Cpc.MirrorSelector do
   end
 
   def hackney_head_dual_stack(url, connect_timeout) do
-    request_hackney_inet = &Downloader.request_hackney(:head, &1, &2, :inet, &3, &4)
-    request_hackney_inet6 = &Downloader.request_hackney(:head, &1, &2, :inet6, &3, &4)
+    request_hackney_inet = &Downloader.request_hackney(:head, &1, &2, :inet, &3, &4, &5)
+    request_hackney_inet6 = &Downloader.request_hackney(:head, &1, &2, :inet6, &3, &4, &5)
     Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, [], connect_timeout)
   end
 

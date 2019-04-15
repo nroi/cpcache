@@ -153,7 +153,6 @@ defmodule Cpc.Downloader do
   end
 
   def download(client, file) do
-    _ = Logger.debug("download()")
     case :hackney.stream_body(client) do
       {:ok, result} ->
         IO.binwrite(file, result)
@@ -186,7 +185,8 @@ defmodule Cpc.Downloader do
     Logger.debug("Attempt to fetch file: #{request.url}")
     case hackney_get_dual_stack(request.url, headers) do
       {:ok, {_protocol, _ip_address, status, headers, client}} ->
-        Logger.debug("Status is: #{inspect status}")
+        Logger.debug("Status: #{inspect status}")
+        Logger.debug("Client: #{inspect client}")
         case status do
           200 ->
             handle_success(headers, client, request)
@@ -219,7 +219,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers) when method == :get or method == :head do
+  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers, pid) when method == :get or method == :head do
     ip_address = :inet.ntoa(ip_address)
 
     # TODO disabling SSL verification is a workaround made necessary because we connect to IP addresses, not hostnames:
@@ -230,6 +230,7 @@ defmodule Cpc.Downloader do
     uri = %URI{uri | host: to_string(ip_address)} |> URI.to_string()
     Logger.debug("Attempt to connect to URI: #{inspect(uri)}")
 
+    Logger.error(":hackney.request(#{inspect method}, #{inspect uri}, #{inspect headers}, \"\", #{inspect opts}} ")
     case :hackney.request(method, uri, headers, "", opts) do
       {:ok, status, headers} ->
         Logger.debug("Successfully connected to #{uri}")
@@ -238,6 +239,8 @@ defmodule Cpc.Downloader do
         {:ok, {protocol, ip_address, status, headers}}
 
       {:ok, status, headers, client} ->
+        Logger.error("hackney returned client: #{inspect client}")
+        :hackney.controlling_process(client, pid)
         {:ok, {protocol, ip_address, status, headers, client}}
 
       {:error, reason} ->
@@ -248,8 +251,8 @@ defmodule Cpc.Downloader do
   end
 
   def hackney_get_dual_stack(url, headers) do
-    request_hackney_inet = &request_hackney(:get, &1, &2, :inet, &3, &4)
-    request_hackney_inet6 = &request_hackney(:get, &1, &2, :inet6, &3, &4)
+    request_hackney_inet = &request_hackney(:get, &1, &2, :inet, &3, &4, &5)
+    request_hackney_inet6 = &request_hackney(:get, &1, &2, :inet6, &3, &4, &5)
     Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, headers, nil)
   end
 
