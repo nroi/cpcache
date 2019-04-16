@@ -42,8 +42,8 @@ defmodule Cpc do
           ipv6: get_or_raise(mirrors_auto, "ipv6"),
           max_score: get_or_raise(mirrors_auto, "max_score"),
           timeout: get_or_raise(mirrors_auto, "timeout"),
-          num_mirrors: get_or_raise(mirrors_auto, "num_mirrors"),
-          mirrors_random_or_sort: get_or_raise(mirrors_auto, "mirrors_random_or_sort"),
+          num_mirrors: Map.get(mirrors_auto, "num_mirrors") || 15,
+          mirrors_random_or_sort: Map.get(mirrors_auto, "mirrors_random_or_sort") || "sort",
           test_interval: get_or_raise(mirrors_auto, "test_interval")
         }
 
