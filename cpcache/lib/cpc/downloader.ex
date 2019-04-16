@@ -186,7 +186,6 @@ defmodule Cpc.Downloader do
     case hackney_get_dual_stack(request.url, headers) do
       {:ok, {_protocol, _ip_address, status, headers, client}} ->
         Logger.debug("Status: #{inspect status}")
-        Logger.debug("Client: #{inspect client}")
         case status do
           200 ->
             handle_success(headers, client, request)
@@ -238,7 +237,6 @@ defmodule Cpc.Downloader do
         {:ok, {protocol, ip_address, status, headers}}
 
       {:ok, status, headers, client} ->
-        Logger.error("hackney returned client: #{inspect client}")
         :hackney.controlling_process(client, pid)
         {:ok, {protocol, ip_address, status, headers, client}}
 
