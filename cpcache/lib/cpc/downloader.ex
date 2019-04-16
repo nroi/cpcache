@@ -230,7 +230,6 @@ defmodule Cpc.Downloader do
     uri = %URI{uri | host: to_string(ip_address)} |> URI.to_string()
     Logger.debug("Attempt to connect to URI: #{inspect(uri)}")
 
-    Logger.error(":hackney.request(#{inspect method}, #{inspect uri}, #{inspect headers}, \"\", #{inspect opts}} ")
     case :hackney.request(method, uri, headers, "", opts) do
       {:ok, status, headers} ->
         Logger.debug("Successfully connected to #{uri}")
