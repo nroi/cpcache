@@ -31,12 +31,12 @@ defmodule Cpc.Downloader do
         {:ok, %{content_length: cl, downloader_pid: pid}}
 
       err = {:error, _reason} ->
+        Process.demonitor(ref, [:flush])
         case fallbacks do
           [] ->
             err
 
           _ ->
-            Process.demonitor(ref, [:flush])
             try_all(fallbacks, save_to, start_from)
         end
     end
