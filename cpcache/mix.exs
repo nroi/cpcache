@@ -5,7 +5,7 @@ defmodule Cpc.Mixfile do
     [
       app: :cpcache,
       version: "0.1.0",
-      elixir: "~> 1.7",
+      elixir: "~> 1.8",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       deps: deps()
