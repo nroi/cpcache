@@ -250,7 +250,6 @@ defmodule Cpc.ClientRequest do
   # req_uri must be the URI as requested by the user, not the URI that will be used to GET the file
   # via HTTP.
   def content_length(req_uri) do
-
     result = TableAccess.get("content_length", Path.basename(req_uri))
 
     case result do

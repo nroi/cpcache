@@ -24,7 +24,7 @@ defmodule Cpc.Downloader do
         # This is due to the fact that the process exiting is most likely due to a bug in the Downloader process,
         # and not some problem with the mirror. By raising, the client_request process exits and returns 500, instead
         # of just returning 404.
-        raise("Downloader process failed with reason #{inspect reason}")
+        raise("Downloader process failed with reason #{inspect(reason)}")
 
       {:content_length, cl} ->
         Process.demonitor(ref, [:flush])
@@ -32,6 +32,7 @@ defmodule Cpc.Downloader do
 
       err = {:error, _reason} ->
         Process.demonitor(ref, [:flush])
+
         case fallbacks do
           [] ->
             err
@@ -143,7 +144,7 @@ defmodule Cpc.Downloader do
   end
 
   def handle_failure(reason, client, request) do
-    _ = Logger.error("Error while handling HTTP request: #{inspect reason}")
+    _ = Logger.error("Error while handling HTTP request: #{inspect(reason)}")
     :ok = :hackney.close(client)
     handle_failure(reason, request)
   end
@@ -161,11 +162,12 @@ defmodule Cpc.Downloader do
       :done ->
         _ = Logger.debug("Closing file.")
         :ok = File.close(file)
-        # Apparently, hackney closes the socket automatically when :done is sent. Explicitly closing the client
-        # at this point would result in an error.
+
+      # Apparently, hackney closes the socket automatically when :done is sent. Explicitly closing the client
+      # at this point would result in an error.
 
       {:error, reason} ->
-        raise("Error while downloading file: #{inspect reason}")
+        raise("Error while downloading file: #{inspect(reason)}")
     end
   end
 
@@ -177,15 +179,14 @@ defmodule Cpc.Downloader do
         rs -> [{"Range", "bytes=#{rs}-"}]
       end
 
-    _ =
-      Logger.debug(
-        "GET #{inspect(request.url)} with headers #{inspect(headers)}"
-      )
+    _ = Logger.debug("GET #{inspect(request.url)} with headers #{inspect(headers)}")
 
     Logger.debug("Attempt to fetch file: #{request.url}")
+
     case hackney_get_dual_stack(request.url, headers) do
       {:ok, {_protocol, _ip_address, status, headers, client}} ->
-        Logger.debug("Status: #{inspect status}")
+        Logger.debug("Status: #{inspect(status)}")
+
         case status do
           200 ->
             handle_success(headers, client, request)
@@ -213,12 +214,13 @@ defmodule Cpc.Downloader do
         end
 
       {:error, reason} ->
-        Logger.debug("Error, cannot fetch file: #{inspect reason}")
+        Logger.debug("Error, cannot fetch file: #{inspect(reason)}")
         handle_failure(reason, request)
     end
   end
 
-  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers, pid) when method == :get or method == :head do
+  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers, pid)
+      when method == :get or method == :head do
     ip_address = :inet.ntoa(ip_address)
 
     # TODO disabling SSL verification is a workaround made necessary because we connect to IP addresses, not hostnames:
@@ -244,13 +246,20 @@ defmodule Cpc.Downloader do
         Logger.warn("Error while attempting to connect to #{uri}: #{inspect(reason)}")
         {:error, {protocol, ip_address, reason}}
     end
-
   end
 
   def hackney_get_dual_stack(url, headers) do
     request_hackney_inet = &request_hackney(:get, &1, &2, :inet, &3, &4, &5)
     request_hackney_inet6 = &request_hackney(:get, &1, &2, :inet6, &3, &4, &5)
-    Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, headers, nil)
+
+    Eyepatch.resolve(
+      url,
+      request_hackney_inet,
+      request_hackney_inet6,
+      &:inet.getaddrs/2,
+      headers,
+      nil
+    )
   end
 
   def handle_info(:init, {url, save_to, receiver, start_from}) do

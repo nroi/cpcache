@@ -80,7 +80,7 @@ defmodule Cpc.MirrorSelector do
   def get_json(num_attempts) when num_attempts < @max_attempts do
     case json_from_remote() do
       result = {:ok, _json} ->
-        Logger.info "Successfully fetched mirror data from #{@json_path}."
+        Logger.info("Successfully fetched mirror data from #{@json_path}.")
         result
 
       other ->
@@ -120,7 +120,6 @@ defmodule Cpc.MirrorSelector do
   end
 
   def json_from_remote() do
-
     # TODO use eyepatch
     with {:ok, 200, _headers, client} <- :hackney.request(:get, @json_path, [], "", []) do
       with {:ok, body} <- :hackney.body(client) do
@@ -147,22 +146,30 @@ defmodule Cpc.MirrorSelector do
       end)
     end
 
-    sorter = case settings.mirrors_random_or_sort do
-      "random" -> &Enum.shuffle(&1)
-      "sort" -> &Enum.sort_by(&1, fn %{"score" => score} -> score end)
-    end
+    sorter =
+      case settings.mirrors_random_or_sort do
+        "random" -> &Enum.shuffle(&1)
+        "sort" -> &Enum.sort_by(&1, fn %{"score" => score} -> score end)
+      end
 
     for %{"protocol" => protocol, "url" => url, "score" => score} <- sorter.(mirrors),
         score <= settings.max_score && test_blacklist.(url) && test_https.(protocol) do
       url
     end
-
   end
 
   def hackney_head_dual_stack(url, connect_timeout) do
     request_hackney_inet = &Downloader.request_hackney(:head, &1, &2, :inet, &3, &4, &5)
     request_hackney_inet6 = &Downloader.request_hackney(:head, &1, &2, :inet6, &3, &4, &5)
-    Eyepatch.resolve(url, request_hackney_inet, request_hackney_inet6, &:inet.getaddrs/2, [], connect_timeout)
+
+    Eyepatch.resolve(
+      url,
+      request_hackney_inet,
+      request_hackney_inet6,
+      &:inet.getaddrs/2,
+      [],
+      connect_timeout
+    )
   end
 
   def fetch_latencies(_url, mirror, i, num_iterations, latencies, _timeout)
@@ -203,10 +210,12 @@ defmodule Cpc.MirrorSelector do
         %{"protocol" => _} -> false
       end)
 
-    results = mirrors
-    |> filter_mirrors
-    |> Enum.take(settings.num_mirrors)
-    |> Enum.map(&test_mirror/1)
+    results =
+      mirrors
+      |> filter_mirrors
+      |> Enum.take(settings.num_mirrors)
+      |> Enum.map(&test_mirror/1)
+
     successes = for {:ok, {url, latency}} <- results, do: {url, latency}
 
     successes
