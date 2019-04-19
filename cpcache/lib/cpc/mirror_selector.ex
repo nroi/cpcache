@@ -97,7 +97,7 @@ defmodule Cpc.MirrorSelector do
         sorted = sorted_mirrors(map)
         [mirrors: predefined] = :ets.lookup(:cpc_config, :mirrors)
         :ets.insert(:cpc_state, {:mirrors, sorted ++ predefined})
-        Logger.debug("Mirrors sorted: #{inspect(sorted)}")
+        Logger.debug("The following mirror list will be used: #{inspect(sorted)}")
 
         case renew_interval do
           :never ->
