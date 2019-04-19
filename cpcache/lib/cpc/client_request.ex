@@ -271,7 +271,7 @@ defmodule Cpc.ClientRequest do
   end
 
   defp serve_via_http(filename, state, uri) do
-    _ = Logger.info("Serve file #{filename} via HTTP.")
+    _ = Logger.info("Serve file via HTTP: #{filename}")
     urls = mirror_urls(uri)
 
     case Cpc.Downloader.try_all(urls, filename, 0) do
@@ -476,7 +476,7 @@ defmodule Cpc.ClientRequest do
         serve_via_growing_file(filename, state)
 
       :unknown ->
-        _ = Logger.info("Serve file #{filename} partly via cache, partly via HTTP.")
+        _ = Logger.info("Serve file partly via cache, partly via HTTP: #{filename}")
         serve_via_cache_and_http(state, filename, uri)
 
       :invalid_path ->
