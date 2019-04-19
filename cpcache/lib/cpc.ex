@@ -58,8 +58,6 @@ defmodule Cpc do
 
   def init_dets() do
     TableAccess.create_table("content_length")
-    TableAccess.create_table("ipv6_support")
-    TableAccess.create_table("ipv4_support")
     TableAccess.create_table("mirrors_status")
   end
 
