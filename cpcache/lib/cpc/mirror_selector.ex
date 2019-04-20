@@ -35,7 +35,7 @@ defmodule Cpc.MirrorSelector do
           :never
 
         [mirror_selection: {:auto, %{test_interval: hours}}] when is_number(hours) ->
-          _ = Logger.debug("Run new test after #{hours} hours have expired.")
+          _ = Logger.debug("Run new latency tests after #{hours} hours have expired.")
           hours * 60 * 60 * 1000
 
         _ ->
