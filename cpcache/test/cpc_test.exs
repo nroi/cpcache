@@ -7,16 +7,19 @@ defmodule CpcTest do
   def get_db_file_body(repository) do
     url = "http://localhost:#{@port}/#{repository}/os/x86_64/#{repository}.db"
     {:ok, 301, headers, _ref} = :hackney.get(url, follow_redirect: true)
-    location = headers
-               |> Cpc.Utils.headers_to_lower
-               |> Map.new
-               |> Map.fetch!("location")
+
+    location =
+      headers
+      |> Cpc.Utils.headers_to_lower()
+      |> Map.new()
+      |> Map.fetch!("location")
+
     {:ok, 200, _headers, ref} = :hackney.get(location, [])
     {:ok, body} = :hackney.body(ref)
     body
   end
 
-  @doc"""
+  @doc """
   Returns a list containing all files and their contents from the compressed tar archive.
   """
   def extract_tar_from_binary(binary) do
@@ -35,14 +38,17 @@ defmodule CpcTest do
 
   test "GET the smallest file" do
     repo = "core"
-    sorted_files = get_db_file_body(repo)
-    |> extract_tar_from_binary
-    |> Enum.map(fn {file, content} ->
-      {file, Cpc.AlpmUtils.parse_db(content)}
-    end)
-    |> Enum.sort_by(fn {_file, content} ->
-      content["CSIZE"]
-    end)
+
+    sorted_files =
+      get_db_file_body(repo)
+      |> extract_tar_from_binary
+      |> Enum.map(fn {file, content} ->
+        {file, Cpc.AlpmUtils.parse_db(content)}
+      end)
+      |> Enum.sort_by(fn {_file, content} ->
+        content["CSIZE"]
+      end)
+
     [{_filename, filemap} | _] = sorted_files
     filename = filemap["FILENAME"]
     digest_should = String.upcase(filemap["SHA256SUM"])
