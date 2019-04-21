@@ -31,6 +31,34 @@ defmodule CpcTest do
 
   def sha256_digest(binary), do: Base.encode16(:crypto.hash(:sha256, binary))
 
+  defp url_from_filename(repo, filename), do: "http://localhost:#{@port}/#{repo}/os/x86_64/#{filename}"
+
+  def get_sorted_files(repo) do
+    get_db_file_body(repo)
+    |> extract_tar_from_binary
+    |> Enum.map(fn {file, content} ->
+      {file, Cpc.AlpmUtils.parse_db(content)}
+    end)
+    |> Enum.sort_by(fn {_file, content} ->
+      content["CSIZE"]
+    end)
+  end
+
+  def download_and_digest(url) do
+    {:ok, 200, _headers, ref} = :hackney.get(url)
+    {:ok, body} = :hackney.body(ref)
+    sha256_digest(body)
+  end
+
+  def test_file(repo, filename, digest_should) do
+    url = url_from_filename(repo, filename)
+    # Repeat a few times to make sure we also test the cache.
+    for _ <- 1..5 do
+      digest_is = download_and_digest(url)
+      assert digest_is == digest_should
+    end
+  end
+
   test "GET a database file via redirection" do
     get_db_file_body("core")
     get_db_file_body("extra")
@@ -38,27 +66,11 @@ defmodule CpcTest do
 
   test "GET the smallest file" do
     repo = "core"
-
-    sorted_files =
-      get_db_file_body(repo)
-      |> extract_tar_from_binary
-      |> Enum.map(fn {file, content} ->
-        {file, Cpc.AlpmUtils.parse_db(content)}
-      end)
-      |> Enum.sort_by(fn {_file, content} ->
-        content["CSIZE"]
-      end)
-
+    sorted_files = get_sorted_files(repo)
     [{_filename, filemap} | _] = sorted_files
     filename = filemap["FILENAME"]
     digest_should = String.upcase(filemap["SHA256SUM"])
-    url = "http://localhost:7070/#{repo}/os/x86_64/#{filename}"
-    {:ok, 200, headers, ref} = :hackney.get(url, follow_redirect: true)
-    {:ok, body} = :hackney.body(ref)
-    digest_is = sha256_digest(body)
-    assert digest_is == digest_should
+    test_file(repo, filename, digest_should)
   end
 
-  test "nothing at all" do
-  end
 end
