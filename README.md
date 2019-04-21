@@ -9,52 +9,51 @@ even as multiple clients download the same file at the same time.
 
 For each incoming GET request, cpcache checks if it can serve the request from
 cache. If so, the file is sent to the client while it is being read from the local
-file system. Otherwise, the file is sent while it is being downloaded from an
+file system. Otherwise, the file is sent to the client while it is being downloaded from an
 ordinary pacman mirror.
-In either case, the client will get an immediate response, i.e., files need not be
+In either case, the client will get an immediate response, i.e., files don't need to be
 downloaded from the server or read from the file system entirely before a response is
 sent to the client.
 No caching is done for database files, cpcache will send a redirect response
 instead.
 
+## Example use cases
+Some examples where you might find cpcache useful:
+- You have more than one device in your LAN that runs ArchLinux. Installing cpcache on the device that runs most often and changing the pacman mirror on all other devices allows you to download cached packages with whatever speed your LAN provides.
+- You have more than one ArchLinux system running on one physical machine (e.g. Docker, QEMU, …). Installing cpcache on the host and changing the mirror on each client allows your clients to fetch cached packages almost instantaneously.  
+
 ## Comparison with other shared pacman caches
 Most importantly, cpcache allows you to share bandwidth when multiple clients are downloading the same
 file at the same time. For instance, suppose a second client requests a file that has been
-downloaded to 30% by the first client. The second client will obtain at least 30% of that file with
-whatever speed your LAN provides. Afterwards, both clients continue to download with the full speed
-provided by your ISP.
+downloaded to 30% by the first client. The second client will obtain at least 30% of the file from the cache.
+Once the cache has been exhausted, we have two clients that require data from the remote mirror. That does not mean that bandwidth is split between the two clients: Instead, we continue maintain only one connection to the remote mirror.
+Therefore, both clients continue to download the uncached part of the file with the full speed provided by your ISP.
 
-A number of different caching methods are listed in the
-[wiki](https://wiki.archlinux.org/index.php?title=Pacman/Tips_and_tricks&redirect=no#Network_shared_pacman_cache),
-let's compare cpcache with each of them.
+Let's outline a few more differences by comparing cpcache with the different caching methods listed in the 
+[wiki](https://wiki.archlinux.org/index.php?title=Pacman/Tips_and_tricks&redirect=no#Network_shared_pacman_cache):
 * Read-only cache using a web server such as darkhttp:
   This is messy since it will return lots of 404s. With cpcache, uncached packages will be downloaded as
-  if you were downloading them directly from the remote mirror, while also making them available for
-  subsequent requests.
+  if you were downloading them directly from the remote mirror, while also storing them in the cache to
+  make them available for subsequent requests.
 * Read-write caches such as [pacserve](https://wiki.archlinux.org/index.php/Pacserve) or
   [pacredir](https://github.com/eworm-de/pacredir#pacredir):
-  pacserve and pacredir are distributed while cpcache is centralized. A distributed solution is your
-  only option if you don't have a device in your LAN which is running 24/7. If, on the other hand, you
-  do have such a device, you may prefer a centralized solution that keeps all your cached packages
-  at one place. This allows you to just set pacman's `CacheDir` to a tmpfs instead of storing
-  packages redundantly. Also, packages that are cached once are always available, not only if the
-  machine that cached it happens to be online.
+  pacserve and pacredir are distributed while cpcache is centralized.
+  Distributed solutions have the advantage that they don't rely on a single machine being able to
+  serve the requests from cache. However, if you have one machine that's either always running or 
+  almost always running when a second machine is also running, a centralized solution will most likely
+  lead to more cache hits: a package has to be downloaded only once by any arbitrary client in order to be
+  available for all other clients.
 * Reverse proxy cache using NGINX: Apart from the fact that cpcache can utilize the full bandwidth
   even with multiple concurrent downloads, the setup described in the wiki is quite similar to
   cpcaches approach. However, cpcache provides additional features. For instance, it obtains the
   most recent list of official mirrors and attempts to choose a fast mirror for you. This means you
   will not have to maintain a mirror list yourself.
 * Proxy cache using [squid](https://wiki.archlinux.org/index.php/Package_Proxy_Cache):
-  From the perspective of the client, cpcache acts like an additional mirror, so that pacman will
-  try another mirror if the machine running cpcache is unreachable. Configuring a proxy
-  cache using squid on the other hand means that all HTTP requests first have to be routed through
-  the machine running squid, which may be undesirable if you cannot rely on that machine being
-  always available. Especially on laptops, you'd have to change the `http_proxy` environment
-  variable whenever you're on the move.
-
-
-## Supported Platforms
-cpcache runs on all platforms supported by Erlang, which includes x86_64 and most ARM platforms. This also means that cpcache does run on a Raspberry Pi, but you may find that cpcache does not work flawlessly on such low-end devices due to the high CPU requirements of multiple concurrent up- and downloads. Only x86_64 clients are supported by cpcache, which means that while cpcache can be installed on an ARM device, it cannot serve files to clients which run anything other than the official Arch Linux distribution.
+  The squid approach involves changing your `http_proxy` variable, which means all HTTP GET requests
+  are routed through that proxy. If the proxy is down (or just inaccessible, think of a Laptop that
+  is sometimes used in your LAN and sometimes on remote locations), your HTTP GET requests will fail.
+  You don't have this issue with cpcache because conceptually, cpcache is just another mirror that you
+  add in your mirrorlist: if it's not available, pacman will try the next mirror.
 
 
 ## Installation
@@ -100,7 +99,7 @@ server {
 
 ## Setting pacman cache to a tmpfs
 
-In case you want to avoid storing packages redundantly (i.e., both on the client and on the server running `cpcache`),
+In case you want to avoid storing packages redundantly (i.e., both on the client and on the server that runs `cpcache`),
 you can set the `CacheDir` in your pacman.conf to a subdirectory of `/tmp`.
 `/tmp` is set to a [tmpfs](https://wiki.archlinux.org/index.php/tmpfs) by default, meaning the package cache
 will be cleared when shutting down.
@@ -138,8 +137,8 @@ build cpcache on your own machine, you can do so by either using Docker, or by i
 and running cpcache with Elixir's build tool, mix.
 
 ### Docker
+Build the image and start the container with:
 
-    cd docker
     docker-compose up
 
 Notice that all downloaded files will then be stored inside the container, so if you're using Docker
@@ -176,3 +175,6 @@ Clone the repository and fetch all dependencies:
 Finally, you can run `cpcache` as its own user (i.e., run `sudo -u cpcache -i` before running this command):
 
     $ iex -S mix
+
+## Supported Platforms
+cpcache runs on all platforms supported by Erlang, which includes x86_64 and most ARM platforms. This also means that cpcache does run on a Raspberry Pi. Only x86_64 clients are supported by cpcache, which means that while cpcache can be installed on an ARM device, it cannot serve files to clients which run anything other than the official Arch Linux distribution.
