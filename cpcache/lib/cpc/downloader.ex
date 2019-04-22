@@ -161,7 +161,8 @@ defmodule Cpc.Downloader do
       {:ok, result} ->
         IO.binwrite(file, result)
         new_size = size + byte_size(result)
-        if Mix.env == :dev or Mix.env == :test do
+
+        if Mix.env() == :dev or Mix.env() == :test do
           # Apply speed limit during test cases:
           # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
           # test cases.

@@ -348,7 +348,7 @@ defmodule Cpc.ClientRequest do
 
     _ =
       Logger.info(
-        "File #{filename} is already being downloaded, initiate download from " <> "growing file."
+        "File #{filename} is already being downloaded, initiate download from growing file."
       )
 
     reply_header = header(full_content_length, state.headers.range_start)
