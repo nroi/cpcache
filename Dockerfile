@@ -23,4 +23,5 @@ RUN mix local.hex --force && \
     mix deps.get && \
     mix compile
 
+ENV MIX_ENV=prod
 ENTRYPOINT iex -S mix
