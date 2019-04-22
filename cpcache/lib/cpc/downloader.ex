@@ -5,6 +5,9 @@ defmodule Cpc.Downloader do
   alias Cpc.Downloader, as: Dload
   alias Cpc.TableAccess
 
+  # 100 kb/s = 0.1024 bytes per microsecond
+  @speed_limit_dev 0.1024
+
   defstruct url: nil,
             save_to: nil,
             start_from: nil,
@@ -153,11 +156,24 @@ defmodule Cpc.Downloader do
     send(request.receiver, {:error, reason})
   end
 
-  def download(client, file) do
+  def download(client, file, size \\ 0, timestamp \\ :erlang.timestamp()) do
     case :hackney.stream_body(client) do
       {:ok, result} ->
         IO.binwrite(file, result)
-        download(client, file)
+        new_size = size + byte_size(result)
+        if Mix.env == :dev or Mix.env == :test do
+          # Apply speed limit during test cases:
+          # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
+          # test cases.
+          diff = :timer.now_diff(:erlang.timestamp(), timestamp)
+          sleep_for = new_size / @speed_limit_dev - diff
+
+          if sleep_for > 0 do
+            :ok = :timer.sleep(trunc(sleep_for / 1000))
+          end
+        end
+
+        download(client, file, new_size, timestamp)
 
       :done ->
         _ = Logger.debug("Closing file.")
