@@ -167,17 +167,18 @@ defmodule Cpc.Downloader do
         IO.binwrite(file, result)
         new_size = size + byte_size(result)
 
-        if Mix.env() == :dev or Mix.env() == :test do
-          # Apply speed limit during test cases:
-          # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
-          # test cases.
-          diff = :timer.now_diff(:erlang.timestamp(), timestamp)
-          sleep_for = new_size / @speed_limit_dev - diff
+        # TODO this is also applied in :prod
+        # if Mix.env() == :dev or Mix.env() == :test do
+        #   # Apply speed limit during test cases:
+        #   # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
+        #   # test cases.
+        #   diff = :timer.now_diff(:erlang.timestamp(), timestamp)
+        #   sleep_for = new_size / @speed_limit_dev - diff
 
-          if sleep_for > 0 do
-            :ok = :timer.sleep(trunc(sleep_for / 1000))
-          end
-        end
+        #   if sleep_for > 0 do
+        #     :ok = :timer.sleep(trunc(sleep_for / 1000))
+        #   end
+        # end
 
         download(client, file, new_size, timestamp)
 
