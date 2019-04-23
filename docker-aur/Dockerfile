@@ -24,3 +24,9 @@ RUN makepkg --noprogressbar --noconfirm --nocolor -s
 USER root
 
 RUN pacman -U --noconfirm --noprogressbar *.tar.xz
+
+User cpcache
+
+ENV ELIXIR_ERL_OPTIONS "-sname cpcache"
+
+ENTRYPOINT /usr/share/cpcache/bin/cpcache foreground
