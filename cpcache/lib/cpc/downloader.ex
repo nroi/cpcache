@@ -98,7 +98,12 @@ defmodule Cpc.Downloader do
   def measure_speed(request, content_length) do
     now = :erlang.system_time(:micro_seconds)
     diff = now - request.start_time
-    _ = Logger.debug("Download of URL #{request.url} to file #{request.save_to} has completed.")
+
+    _ =
+      Logger.debug(
+        "Download of URL has completed: #{request.url} to file #{request.save_to} has completed."
+      )
+
     _ = Logger.debug("Content length is: #{content_length}")
     speed = bandwidth_to_human_readable(content_length, diff)
     secs = Float.round(diff / 1_000_000, 2)

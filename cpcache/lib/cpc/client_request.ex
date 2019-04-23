@@ -20,7 +20,8 @@ defmodule Cpc.ClientRequest do
             # a map containing the relevant data extracted from above headers
             headers: %{},
             # GET or POST
-            request: nil
+            request: nil,
+            waiting_for_no_dependencies_left: false
 
   def start_link(sock) do
     GenServer.start_link(__MODULE__, init_state(sock))
@@ -442,7 +443,14 @@ defmodule Cpc.ClientRequest do
               Filewatcher.start_link(self(), filename, content_length, start_http_from_byte)
 
             action = {:filewatch, {file, filename}, content_length, start_http_from_byte}
-            {:noreply, %{state | sent_header: true, action: action, downloader_pid: pid}}
+
+            {:noreply,
+             %{
+               state
+               | sent_header: true,
+                 action: action,
+                 downloader_pid: pid
+             }}
 
           {:error, reason} ->
             reply_header =
@@ -676,20 +684,41 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | header_fields: [header_field | hf]}}
   end
 
-  def handle_info({:tcp_closed, _}, state = %CR{action: {:filewatch, {_, n}, _, _}}) do
-    # TODO this message is sometimes logged even though the transfer has completed.
-    _ = Logger.info(premature_close(n))
-    {:stop, :normal, state}
-  end
-
   def handle_info({:tcp_closed, _sock}, state) do
     _ = Logger.debug("Socket closed by client.")
-    {:stop, :normal, state}
+
+    case GenServer.call(Cpc.Serializer, :client_closed) do
+      :ok ->
+        # No other clients depend on this process, we may stop.
+        {:stop, :normal, state}
+
+      :wait_for_signal ->
+        # Other clients depend on this process: We may not stop this process until the Serializer tells us to.
+        {:noreply, %{state | waiting_for_no_dependencies_left: true}}
+    end
   end
 
   def handle_info({:EXIT, _, :normal}, state) do
     # Since we're trapping exits, we're notified if a linked process died, even if it died with
     # status :normal.
+    {:noreply, state}
+  end
+
+  def handle_cast(:no_dependencies_left, state = %CR{waiting_for_no_dependencies_left: true}) do
+    # No other clients depend on this process anymore, we may now stop.
+    {:stop, :normal, state}
+  end
+
+  def handle_cast(:no_dependencies_left, state = %CR{waiting_for_no_dependencies_left: false}) do
+    # We don't care about this message since we are not waiting for an event telling us that we can stop.
+    {:noreply, state}
+  end
+
+  def handle_cast({:filesize_increased, _}, state = %CR{waiting_for_no_dependencies_left: true}) do
+    # Nothing to do: We just leave this process running, waiting until all dependencies
+    # don't need this process anymore.
+    # TODO this is messy, we should probably refactor this so that processes get the :filesize_increased message
+    # only if they need this message.
     {:noreply, state}
   end
 
