@@ -31,6 +31,7 @@ defmodule Cpc.ClientRequest do
     %CR{sock: sock, sent_header: false, action: :recv_header}
   end
 
+  @impl true
   def init(state) do
     Process.flag(:trap_exit, true)
     {:ok, state}
@@ -495,6 +496,7 @@ defmodule Cpc.ClientRequest do
     end
   end
 
+  @impl true
   def handle_info(
         {:http, _, {:http_request, :GET, {:abs_path, "/"}, _}},
         state = %CR{action: :recv_header}
@@ -508,6 +510,7 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, state}
   end
 
+  @impl true
   def handle_info(
         {:http, _, {:http_request, :GET, {:abs_path, "/robots.txt"}, _}},
         state = %CR{action: :recv_header}
@@ -521,6 +524,7 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, state}
   end
 
+  @impl true
   def handle_info(
         {:http, _, {:http_request, :GET, {:abs_path, "/favicon.ico"}, _}},
         state = %CR{action: :recv_header}
@@ -532,6 +536,7 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, state}
   end
 
+  @impl true
   def handle_info(
         {:http, _, {:http_request, :GET, {:abs_path, path}, _}},
         state = %CR{action: :recv_header}
@@ -547,6 +552,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{init_state | request: {:GET, uri}}}
   end
 
+  @impl true
   def handle_info({:http, _, :http_eoh}, state = %CR{action: :recv_header, request: {:POST, hn}}) do
     :ok = :inet.setopts(state.sock, packet: :raw)
     new_state = %{state | headers: extract_headers(state.header_fields)}
@@ -615,6 +621,7 @@ defmodule Cpc.ClientRequest do
     {:stop, :normal, new_state}
   end
 
+  @impl true
   def handle_info({:http, _, :http_eoh}, state = %CR{action: :recv_header, request: {:GET, uri}}) do
     :ok = :inet.setopts(state.sock, active: :once)
     _ = Logger.debug("Received end of header.")
@@ -666,6 +673,7 @@ defmodule Cpc.ClientRequest do
     end
   end
 
+  @impl true
   def handle_info(
         {:http, _, {:http_request, :POST, {:abs_path, "/" <> hn}, _}},
         state = %CR{action: :recv_header}
@@ -676,6 +684,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{init_state | request: {:POST, hn}}}
   end
 
+  @impl true
   def handle_info(
         {:http, _, header_field = {:http_header, _, _, _, _}},
         state = %CR{header_fields: hf}
@@ -684,6 +693,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | header_fields: [header_field | hf]}}
   end
 
+  @impl true
   def handle_info({:tcp_closed, _sock}, state) do
     _ = Logger.debug("Socket closed by client.")
 
@@ -698,22 +708,26 @@ defmodule Cpc.ClientRequest do
     end
   end
 
+  @impl true
   def handle_info({:EXIT, _, :normal}, state) do
     # Since we're trapping exits, we're notified if a linked process died, even if it died with
     # status :normal.
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast(:no_dependencies_left, state = %CR{waiting_for_no_dependencies_left: true}) do
     # No other clients depend on this process anymore, we may now stop.
     {:stop, :normal, state}
   end
 
+  @impl true
   def handle_cast(:no_dependencies_left, state = %CR{waiting_for_no_dependencies_left: false}) do
     # We don't care about this message since we are not waiting for an event telling us that we can stop.
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast({:filesize_increased, _}, state = %CR{waiting_for_no_dependencies_left: true}) do
     # Nothing to do: We just leave this process running, waiting until all dependencies
     # don't need this process anymore.
@@ -722,6 +736,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast(
         {:filesize_increased, {n1, prev_size, new_size}},
         state = %CR{action: {:filewatch, {f, n2}, content_length, _size}}
@@ -737,6 +752,7 @@ defmodule Cpc.ClientRequest do
     end
   end
 
+  @impl true
   def handle_cast(
         {:file_complete, {n1, _prev_size, new_size}},
         state = %CR{action: {:filewatch, {f, n2}, content_length, size}}
@@ -747,6 +763,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, %{state | action: :recv_header}}
   end
 
+  @impl true
   def handle_cast({:file_complete, _}, state) do
     # Save to ignore: sometimes we notice the file has completed before this message is received,
     # i.e., if the timer happens to fire at the exact moment when the file has completed.
@@ -754,6 +771,7 @@ defmodule Cpc.ClientRequest do
     {:noreply, state}
   end
 
+  @impl true
   def handle_cast({:filesize_increased, _}, state) do
     # Can be ignored for the same reasons as :file_complete:
     # timer still informs us that the file has completed.
@@ -771,6 +789,7 @@ defmodule Cpc.ClientRequest do
     ^content_length = File.stat!(n).size
   end
 
+  @impl true
   def terminate(reason, state = %CR{sock: sock, sent_header: sent_header, downloader_pid: pid}) do
     case reason do
       :normal ->
