@@ -24,20 +24,16 @@ mirror_selection_method = "auto"
 
 
 # In case no suitable mirror could be found automatically, cpcache will attempt
-# to download files from the following mirrors:
-mirrors_predefined = [
-    "https://mirror.pseudoform.org/",
-    "https://repo.itmettke.de/archlinux/",
-    "https://mirror.metalgamer.eu/archlinux/",
-    "https://archmirror.tomforb.es/",
-    "https://archlinux.thaller.ws/",
-]
+# to download files from the following mirrors. This list can be empty if
+# mirror_selection_method has been set to "auto".
+mirrors_predefined = []
 
 # The method to choose suitable mirrors automatically may not always work
 # perfectly. If one of the automatically chosen mirrors turns out to be slow or
 # unstable, add it to this list.
 mirrors_blacklist = []
 
+# Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]
     # only use mirrors with HTTPS support.
     https_required = true
@@ -52,7 +48,7 @@ mirrors_blacklist = []
     # The maximum number of mirrors to use and test for latency. Increasing this
     # number will also increase the startup time of cpcache (due to the latency
     # tests), but it might also give you a faster mirror.
-    num_mirrors = 15
+    num_mirrors = 8
     # Valid values for this setting include "sort" and "random".  After the
     # mirrors have been filtered according to your chosen criteria (e.g. ipv6
     # supported, score not more than 2.5), you will most likely still have more

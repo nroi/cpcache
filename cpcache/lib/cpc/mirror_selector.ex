@@ -23,6 +23,7 @@ defmodule Cpc.MirrorSelector do
   # internet connection is just slow, we don't populate the greylist with all mirrors: perhaps we
   # should limit the greylist to not more than half of the filtered mirrors.
 
+  @impl true
   def init(nil) do
     # Start with the predefined mirrors. We will add "better" mirrors later, but for now, we want to
     # have some mirrors available in case a mirror is requested before the process to find the best
@@ -52,8 +53,10 @@ defmodule Cpc.MirrorSelector do
   end
 
   def get_all() do
-    [mirrors: mirrors] = :ets.lookup(:cpc_state, :mirrors)
-    mirrors
+    # Instead of fetching the mirrors directly from :ets, we use message passing.
+    # This ensures that the mirror selection process (e.g., running latency tests etc.) has already completed
+    # when the result is returned.
+    GenServer.call(__MODULE__, :get_all)
   end
 
   def get_json(num_attempts) when num_attempts == @max_attempts do
@@ -91,6 +94,15 @@ defmodule Cpc.MirrorSelector do
     end
   end
 
+  @impl true
+  def handle_call(:get_all, _from, state) do
+    # TODO is there any good reason left to use :ets now that we use message passing?
+    # We might as well just save the mirrors in the state.
+    [mirrors: mirrors] = :ets.lookup(:cpc_state, :mirrors)
+    {:reply, mirrors, state}
+  end
+
+  @impl true
   def handle_info(:init, renew_interval) do
     case get_json(0) do
       {:ok, map} ->
