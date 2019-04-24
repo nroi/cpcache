@@ -146,7 +146,12 @@ defmodule Cpc.Downloader do
 
     {:ok, file} = File.open(request.save_to, [:append, :raw])
 
-    with :ok <- download(client, file) do
+    throttle_downloads = case Application.fetch_env(:cpcache, :throttle_downloads) do
+      {:ok, true} -> true
+      {:ok, false} -> false
+      :error -> false
+    end
+    with :ok <- download(client, file, throttle_downloads) do
       measure_speed(request, content_length)
     end
   end
@@ -161,26 +166,25 @@ defmodule Cpc.Downloader do
     send(request.receiver, {:error, reason})
   end
 
-  def download(client, file, size \\ 0, timestamp \\ :erlang.timestamp()) do
+  def download(client, file, throttle \\ false, size \\ 0, timestamp \\ :erlang.timestamp()) do
     case :hackney.stream_body(client) do
       {:ok, result} ->
         IO.binwrite(file, result)
         new_size = size + byte_size(result)
 
-        # TODO this is also applied in :prod
-        # if Mix.env() == :dev or Mix.env() == :test do
-        #   # Apply speed limit during test cases:
-        #   # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
-        #   # test cases.
-        #   diff = :timer.now_diff(:erlang.timestamp(), timestamp)
-        #   sleep_for = new_size / @speed_limit_dev - diff
+        if throttle do
+          # Apply speed limit during test cases:
+          # To avoid unnecessary load on remote mirrors, but also to achieve a certain reproducibility for our
+          # test cases.
+          diff = :timer.now_diff(:erlang.timestamp(), timestamp)
+          sleep_for = new_size / @speed_limit_dev - diff
 
-        #   if sleep_for > 0 do
-        #     :ok = :timer.sleep(trunc(sleep_for / 1000))
-        #   end
-        # end
+          if sleep_for > 0 do
+            :ok = :timer.sleep(trunc(sleep_for / 1000))
+          end
+        end
 
-        download(client, file, new_size, timestamp)
+        download(client, file, throttle, new_size, timestamp)
 
       :done ->
         _ = Logger.debug("Closing file.")
