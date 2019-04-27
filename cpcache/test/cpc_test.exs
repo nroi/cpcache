@@ -104,7 +104,7 @@ defmodule CpcTest do
 
     {_filename, repo, filemap} =
       Enum.find(sorted_files, fn
-        {_filename, repo, filemap} -> String.to_integer(filemap["CSIZE"]) in range
+        {_filename, _repo, filemap} -> String.to_integer(filemap["CSIZE"]) in range
       end)
 
     filename = filemap["FILENAME"]

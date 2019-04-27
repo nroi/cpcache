@@ -8,24 +8,18 @@ defmodule Cpc.Listener do
 
   def init([]) do
     [{:port, port}] = :ets.lookup(:cpc_config, :port)
-    [{:ipv6_enabled, ipv6_enabled}] = :ets.lookup(:cpc_config, :ipv6_enabled)
 
-    standard_opts = [
+    opts = [
       :binary,
+      :inet6,
       active: false,
       reuseaddr: true,
       packet: :http_bin,
       send_timeout: 1000
     ]
 
-    opts =
-      case ipv6_enabled do
-        true -> [:inet6 | standard_opts]
-        false -> [:inet | standard_opts]
-      end
-
     {:ok, listening_sock} = :gen_tcp.listen(port, opts)
-    Logger.info("Listening on port #{port}")
+    Logger.info("Listening on 127.0.0.1:#{port} and [::1]:#{port}")
     send(self(), :init)
     {:ok, listening_sock}
   end
