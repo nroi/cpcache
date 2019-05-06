@@ -7,15 +7,18 @@ even as multiple clients download the same file at the same time.
 
 ## How it works
 
-For each incoming GET request, cpcache checks if it can serve the request from
-cache. If so, the file is sent to the client while it is being read from the local
-file system. Otherwise, the file is sent to the client while it is being downloaded from an
-ordinary pacman mirror.
-In either case, the client will get an immediate response, i.e., files don't need to be
-downloaded from the server or read from the file system entirely before a response is
-sent to the client.
-No caching is done for database files, cpcache will send a redirect response
-instead.
+cpcache is an HTTP server that sits between pacman and the remote mirror.
+To serve HTTP GET requests, it either fetches the file from the local filesystem (using sendfile), or,
+if the file is not locally available, it establishes a connection to the remote mirror and downloads it from there.
+In this case, the file will be stored to the local filesystem and simultaneously streamed to the requesting client.
+This means the download will take just as long as it would have taken without cpcache, with the added bonus that
+subsequent HTTP requests for this file can henceforth be served from the local filesystem.
+
+cpcache is entirely transparent to pacman: Nothing that concerns pacman needs configuration changes (except for changing
+the mirror, of course). No additional latency is introduced, downloads will start immediately regardless of
+whether they are served from a remote mirror or the local filesystem.
+
+For database files, no caching is done. cpcache will send a redirect response instead.
 
 ## Example use cases
 Some examples where you might find cpcache useful:
@@ -64,9 +67,9 @@ systemctl start cpcache.service
 systemctl enable cpcache.service
 ```
 Set the new mirror in `/etc/pacman.d/mirrorlist` on all clients. For instance, if the server running
-cpcache can be reached via `alarm.local`, add the following to the beginning of the mirrorlist file:
+cpcache can be reached via `myhost.local`, add the following to the beginning of the mirrorlist file:
 ```bash
-Server = http://alarm.local:7070/$repo/os/$arch
+Server = http://myhost.local:7070/$repo/os/$arch
 ```
 
 ## Configuration
@@ -120,13 +123,18 @@ warning: no /tmp/pacman_cache/ cache exists, creating...
 and create the directory for you. You can safely ignore this warning. Alternatively, if you prefer not to have pacman emit
 this warning, you might consider adapting your `/etc/fstab` to create a second tmpfs on `/var/cache/pacman/pkg`.
 
-# Cleaning the package cache
+## Cleaning the package cache
 
-`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old packages. For instance, if you use the default directory for storing your packages (`/var/cache/cpcache`), the following will delete all packages except for the three most recent versions:
+`paccache` from [pacman-contrib](https://www.archlinux.org/packages/?name=pacman-contrib) can be used to purge old packages. Install it if you haven't done so already:
+```bash
+sudo pacman -S pacman-contrib
+```
+Packages are stored in the directory specified by the `cache_directory` variable in `/etc/cpcache/cpcache.toml`. By default, it's `/var/cache/cpcache`. Use `paccache` to clean up the subdirectories of this directory. For instance,
+the following will delete all packages except for the three most recent versions:
 
 ```bash
-for cache_dir in /var/cache/cpcache/pkg/{community,core,extra,testing,multilib}/os/x86_64/; do
-  paccache -k3 -c $cache_dir
+for cache_dir in /var/cache/cpcache/pkg/*/os/x86_64/; do
+  paccache -r -k3 -c $cache_dir
 done
 ```
 
@@ -178,3 +186,17 @@ Finally, you can run `cpcache` as its own user (i.e., run `sudo -u cpcache -i` b
 
 ## Supported Platforms
 cpcache runs on all platforms supported by Erlang, which includes x86_64 and most ARM platforms. This also means that cpcache does run on a Raspberry Pi. Only x86_64 clients are supported by cpcache, which means that while cpcache can be installed on an ARM device, it cannot serve files to clients which run anything other than the official Arch Linux distribution.
+
+
+## FAQ
+
+### How does cpcache select the remote mirrors to download from?
+After each start, cpcache fetches an up-to-date mirrorlist from https://www.archlinux.org/mirrors/status/json/.
+It then filters the mirrors according to the criteria given in the `/etc/cpcache/cpcache.toml` configuration file.
+This should exclude mirrors that are outdated or very unreliable. For all mirrors that
+match those criteria, it runs a few latency tests and selects a mirror with good latency. The process is described
+in greater detail in the configuration file.
+
+If cpcache happens to select a mirror that turns out to be slow or unreliable, you might want to checkout the
+`mirrors_predefined` and `mirrors_blacklist` option in the configuration file. But this is just a workaround, if cpcache
+selects crappy mirrors, I consider this a bug and will appreciate it if you open an issue.
