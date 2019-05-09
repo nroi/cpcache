@@ -98,6 +98,10 @@ defmodule CpcTest do
 
   test "GET the 20 smallest files" do
     repo = "core"
+    # Usually, we use the download limit during testing. However, this would skew our results,
+    # so we disable them temporarily.
+    prev_value = Application.get_env(:cpcache, :throttle_downloads)
+    Application.put_env(:cpcache, :throttle_downloads, false)
     # Skip the first file: It is already in cache, and we want to test the download behavior.
     [_already_downloaded | files_sorted_by_size] = get_files_sorted_by_size(repo)
 
@@ -114,6 +118,7 @@ defmodule CpcTest do
     Logger.error("Average latency: #{Enum.sum(sorted_latencies) / Enum.count(sorted_latencies)}")
     Logger.error("Median latency: #{Enum.at(sorted_latencies, 10)}")
     Logger.error("All latencies: #{inspect latencies}")
+    Application.put_env(:cpcache, :throttle_downloads, prev_value)
   end
 
   test "a client aborting the download does not cause errors for other clients fetching the same file" do
