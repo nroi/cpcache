@@ -781,8 +781,12 @@ defmodule Cpc.ClientRequest do
 
   defp finalize_download_from_growing_file(state, f, n, size, content_length) do
     _ = Logger.debug("Download from growing file complete.")
-    {:ok, _} = :file.sendfile(f, state.sock, size, content_length - size, [])
-    _ = Logger.debug("Sendfile has completed.")
+    case :file.sendfile(f, state.sock, size, content_length - size, []) do
+      {:ok, _} ->
+        _ = Logger.debug("sendfile() has completed successfully.")
+      {:error, :einval} ->
+        _ = Logger.warn("sendfile() has failed (EINVAL). Did the client close the connection?")
+    end
     :ok = File.close(f)
     :ok = GenServer.cast(Cpc.Serializer, {:download_ended, n, self()})
     _ = Logger.debug("File is closed.")
