@@ -20,11 +20,6 @@ RUN useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache && \
 
 WORKDIR /var/lib/cpcache
 
-# Workaround: We basically want to say "Rebuild everything from this point on",
-# so we just have to change the .marker file in order to invalidate all
-# statements up to and including this COPY statement.
-COPY .marker /dev/null
-
 COPY --chown=cpcache:cpcache cpcache /var/lib/cpcache/
 COPY cpcache/conf/cpcache.toml /etc/cpcache/
 
