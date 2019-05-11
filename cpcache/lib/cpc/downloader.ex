@@ -259,36 +259,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-  # TODO this method should be obsolete, remove it when it's finally unused.
-  def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers, pid)
-      when method == :get or method == :head do
-    ip_address = :inet.ntoa(ip_address)
-
-    # TODO disabling SSL verification is a workaround made necessary because we connect to IP addresses, not hostnames:
-    # If we supply the string "https://<ip-address>" to hackney, the SSL routine will verify if the certificate has
-    # been issued to <ip-address>, but certificates are issued to host names, not IP addresses.
-    opts = [connect_timeout: connect_timeout, ssl_options: [{:verify, :verify_none}]]
-    headers = [{"Host", to_string(uri.host)} | headers]
-    uri = %URI{uri | host: to_string(ip_address)} |> URI.to_string()
-    Logger.debug("Attempt to connect to URI: #{inspect(uri)}")
-
-    case :hackney.request(method, uri, headers, "", opts) do
-      {:ok, status, headers} ->
-        Logger.debug("Successfully connected to #{uri}")
-        # protocol is included in the response for logging purposes, so that we can evaluate
-        # how often the connection is made via IPv4 and IPv6.
-        {:ok, {protocol, ip_address, status, headers}}
-
-      {:ok, status, headers, client} ->
-        :hackney.controlling_process(client, pid)
-        {:ok, {protocol, ip_address, status, headers, client}}
-
-      {:error, reason} ->
-        Logger.warn("Error while attempting to connect to #{uri}: #{inspect(reason)}")
-        {:error, {protocol, ip_address, reason}}
-    end
-  end
-
   def connect_hackney(uri, ip_address, protocol, connect_timeout, _pid) do
     ip_address =
       case :inet.ntoa(ip_address) do
