@@ -95,7 +95,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def measure_speed(request, content_length) do
+  def measure_speed(request = %Dload{}, content_length) do
     now = :erlang.system_time(:micro_seconds)
     diff = now - request.start_time
 
@@ -116,7 +116,7 @@ defmodule Cpc.Downloader do
     raise "20 redirections exceeded."
   end
 
-  def handle_redirect(headers, request, num_redirect) do
+  def handle_redirect(headers, request = %Dload{}, num_redirect) do
     headers = Utils.headers_to_lower(headers)
     location = :proplists.get_value("location", headers)
     _ = Logger.debug("Redirected to: #{location}")
@@ -124,7 +124,7 @@ defmodule Cpc.Downloader do
     init_get_request(%{request | url: location}, num_redirect)
   end
 
-  def handle_success(headers, client, request) do
+  def handle_success(headers, client, request = %Dload{}) do
     headers = Utils.headers_to_lower(headers)
     content_length = :proplists.get_value("content-length", headers) |> String.to_integer()
     Logger.debug("Content-length: #{content_length}")
@@ -156,13 +156,13 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def handle_failure(reason, client, request) do
+  def handle_failure(reason, client, request = %Dload{}) do
     _ = Logger.error("Error while handling HTTP request: #{inspect(reason)}")
     :ok = :hackney.close(client)
     handle_failure(reason, request)
   end
 
-  def handle_failure(reason, request) do
+  def handle_failure(reason, request = %Dload{}) do
     send(request.receiver, {:error, reason})
   end
 
@@ -198,7 +198,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def init_get_request(request, num_redirect \\ 0) do
+  def init_get_request(request = %Dload{}, num_redirect \\ 0) do
     headers =
       case request.start_from do
         nil -> []
@@ -206,46 +206,54 @@ defmodule Cpc.Downloader do
         rs -> [{"Range", "bytes=#{rs}-"}]
       end
 
+    uri = URI.parse(to_string(request.url))
+    headers = [{"Host", to_string(uri.host)} | headers]
+
     _ = Logger.debug("GET #{inspect(request.url)} with headers #{inspect(headers)}")
 
     Logger.debug("Attempt to fetch file: #{request.url}")
 
-    case hackney_get_dual_stack(request.url, headers) do
-      {:ok, {_protocol, _ip_address, status, headers, client}} ->
-        Logger.debug("Status: #{inspect(status)}")
+    case hackney_connect_dual_stack(request.url) do
+      {:ok, {_protocol, conn_ref}} ->
+        hackney_request = {:get, uri.path, headers, ""}
+        case :hackney.send_request(conn_ref, hackney_request) do
+          {:error, reason} ->
+            handle_failure(reason, conn_ref, request)
+          {:ok, status, headers, ^conn_ref} ->
+          _ = Logger.debug("Status for url #{inspect request.url}: #{status}")
+          # TODO this nesting is too deep! refactor!
+            case status do
+              200 ->
+                handle_success(headers, conn_ref, request)
 
-        case status do
-          200 ->
-            handle_success(headers, client, request)
+              206 ->
+                handle_success(headers, conn_ref, request)
 
-          206 ->
-            handle_success(headers, client, request)
+              301 ->
+                handle_redirect(headers, request, num_redirect + 1)
 
-          301 ->
-            handle_redirect(headers, request, num_redirect + 1)
+              302 ->
+                handle_redirect(headers, request, num_redirect + 1)
 
-          302 ->
-            handle_redirect(headers, request, num_redirect + 1)
+              303 ->
+                handle_redirect(headers, request, num_redirect + 1)
 
-          303 ->
-            handle_redirect(headers, request, num_redirect + 1)
+              307 ->
+                handle_redirect(headers, request, num_redirect + 1)
 
-          307 ->
-            handle_redirect(headers, request, num_redirect + 1)
+              308 ->
+                handle_redirect(headers, request, num_redirect + 1)
 
-          308 ->
-            handle_redirect(headers, request, num_redirect + 1)
-
-          status ->
-            handle_failure(status, client, request)
+              status ->
+                handle_failure(status, conn_ref, request)
+            end
         end
-
       {:error, reason} ->
-        Logger.debug("Error, cannot fetch file: #{inspect(reason)}")
         handle_failure(reason, request)
     end
   end
 
+  # TODO this method should be obsolete, remove it when it's finally unused.
   def request_hackney(method, uri, ip_address, protocol, connect_timeout, headers, pid)
       when method == :get or method == :head do
     ip_address = :inet.ntoa(ip_address)
@@ -275,17 +283,42 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def hackney_get_dual_stack(url, headers) do
-    request_hackney_inet = &request_hackney(:get, &1, &2, :inet, &3, &4, &5)
-    request_hackney_inet6 = &request_hackney(:get, &1, &2, :inet6, &3, &4, &5)
+  def connect_hackney(uri, ip_address, protocol, connect_timeout, _pid) do
+    ip_address =
+      case :inet.ntoa(ip_address) do
+        {:error, :einval} -> raise("Unable to parse ip address: #{inspect(ip_address)}")
+        x -> x
+      end
+    Logger.debug("ip is: #{inspect ip_address}, protocol: #{protocol}")
+
+    opts = [connect_timeout: connect_timeout, ssl_options: [{:verify, :verify_none}]]
+    transport = case uri.port do
+      80 -> :hackney_tcp
+      443 -> :hackney_ssl
+    end
+    case :hackney.connect(transport, ip_address, uri.port, opts) do
+      {:ok, conn_ref} ->
+        Logger.debug("Successfully connected to #{uri.host} via #{inspect ip_address}")
+        {:ok, {protocol, conn_ref}}
+      {:error, reason} ->
+        Logger.warn("Error while attempting to connect to #{uri.host}: #{inspect(reason)}")
+        {:error, {protocol, reason}}
+    end
+  end
+
+  def hackney_connect_dual_stack(url) do
+    connect_hackney_inet = &connect_hackney(&1, &2, :inet, &3, &4)
+    connect_hackney_inet6 = &connect_hackney(&1, &2, :inet6, &3, &4)
+    transfer_ownership_to = fn pid, {:ok, {_protocol, conn_ref}} ->
+      :ok = :hackney.controlling_process(conn_ref, pid)
+    end
 
     Eyepatch.resolve(
       url,
-      request_hackney_inet,
-      request_hackney_inet6,
+      connect_hackney_inet,
+      connect_hackney_inet6,
       &:inet.getaddrs/2,
-      headers,
-      nil
+      transfer_ownership_to
     )
   end
 

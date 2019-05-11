@@ -170,18 +170,14 @@ defmodule Cpc.MirrorSelector do
     end
   end
 
-  def hackney_head_dual_stack(url, connect_timeout) do
-    request_hackney_inet = &Downloader.request_hackney(:head, &1, &2, :inet, &3, &4, &5)
-    request_hackney_inet6 = &Downloader.request_hackney(:head, &1, &2, :inet6, &3, &4, &5)
-
-    Eyepatch.resolve(
-      url,
-      request_hackney_inet,
-      request_hackney_inet6,
-      &:inet.getaddrs/2,
-      [],
-      connect_timeout
-    )
+  def hackney_head_dual_stack(url, timeout) do
+    # TODO make use of the timeout.
+    with {:ok, {_protocol, conn_ref}} <- Downloader.hackney_connect_dual_stack(url) do
+      req = {:head, "/", [], ""}
+      with  {:ok, status, _headers} <- :hackney.send_request(conn_ref, req) do
+        {:ok, status}
+      end
+    end
   end
 
   def fetch_latencies(_url, mirror, i, num_iterations, latencies, _timeout)
