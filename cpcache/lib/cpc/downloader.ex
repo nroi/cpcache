@@ -198,16 +198,19 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def init_get_request(request = %Dload{uri: uri = %URI{}}, num_redirect \\ 0) do
-    headers =
-      case request.start_from do
+  defp get_headers(start_from, host) do
+    range_headers =
+      case start_from do
         nil -> []
         0 -> []
         rs -> [{"Range", "bytes=#{rs}-"}]
       end
 
-    headers = [{"Host", uri.host} | headers]
+    [{"Host", host} | range_headers]
+  end
 
+  def init_get_request(request = %Dload{uri: uri = %URI{}}, num_redirect \\ 0) do
+    headers = get_headers(request.start_from, uri.host)
     _ = Logger.debug("GET #{inspect(uri)} with headers #{inspect(headers)}")
 
     Logger.debug("Attempt to fetch file: #{uri}")
