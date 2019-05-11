@@ -17,6 +17,37 @@ defmodule Cpc.Downloader do
   # Process for downloading the given URL starting from byte start_from to the filename at path
   # save_to.
 
+  def start_link(url, save_to, receiver, start_from \\ nil) do
+    uri = URI.parse(to_string(url))
+
+    GenServer.start_link(
+      __MODULE__,
+      {uri, to_charlist(save_to), receiver, start_from}
+    )
+  end
+
+  @impl true
+  def init({uri, save_to, receiver, start_from}) do
+    send(self(), :init)
+    {:ok, {uri, save_to, receiver, start_from}}
+  end
+
+  @impl true
+  def handle_info(:init, {uri = %URI{}, save_to, receiver, start_from}) do
+    start_time = :erlang.system_time(:micro_seconds)
+
+    request = %Dload{
+      uri: uri,
+      save_to: save_to,
+      start_from: start_from,
+      receiver: receiver,
+      start_time: start_time
+    }
+
+    init_get_request(request)
+    {:stop, :normal, request}
+  end
+
   def try_all([url | fallbacks], save_to, start_from \\ nil) do
     {:ok, pid} = start_link(url, save_to, self(), start_from)
     ref = Process.monitor(pid)
@@ -46,19 +77,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def start_link(url, save_to, receiver, start_from \\ nil) do
-    uri = URI.parse(to_string(url))
-
-    GenServer.start_link(
-      __MODULE__,
-      {uri, to_charlist(save_to), receiver, start_from}
-    )
-  end
-
-  def init({uri, save_to, receiver, start_from}) do
-    send(self(), :init)
-    {:ok, {uri, save_to, receiver, start_from}}
-  end
 
   def bandwidth_to_human_readable(_bytes, microseconds) when microseconds <= 0 do
     raise "duration must be positive to provide meaningful values"
@@ -306,20 +324,5 @@ defmodule Cpc.Downloader do
       &:inet.getaddrs/2,
       transfer_ownership_to
     )
-  end
-
-  def handle_info(:init, {uri = %URI{}, save_to, receiver, start_from}) do
-    start_time = :erlang.system_time(:micro_seconds)
-
-    request = %Dload{
-      uri: uri,
-      save_to: save_to,
-      start_from: start_from,
-      receiver: receiver,
-      start_time: start_time
-    }
-
-    init_get_request(request)
-    {:stop, :normal, request}
   end
 end
