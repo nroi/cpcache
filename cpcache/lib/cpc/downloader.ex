@@ -8,7 +8,7 @@ defmodule Cpc.Downloader do
   # 100 kb/s = 0.1024 bytes per microsecond
   @speed_limit_dev 0.1024
 
-  defstruct url: nil,
+  defstruct uri: nil,
             save_to: nil,
             start_from: nil,
             receiver: nil,
@@ -47,15 +47,16 @@ defmodule Cpc.Downloader do
   end
 
   def start_link(url, save_to, receiver, start_from \\ nil) do
+    uri = URI.parse(to_string(url))
     GenServer.start_link(
       __MODULE__,
-      {to_charlist(url), to_charlist(save_to), receiver, start_from}
+      {uri, to_charlist(save_to), receiver, start_from}
     )
   end
 
-  def init({url, save_to, receiver, start_from}) do
+  def init({uri, save_to, receiver, start_from}) do
     send(self(), :init)
-    {:ok, {url, save_to, receiver, start_from}}
+    {:ok, {uri, save_to, receiver, start_from}}
   end
 
   def bandwidth_to_human_readable(_bytes, microseconds) when microseconds <= 0 do
@@ -101,7 +102,7 @@ defmodule Cpc.Downloader do
 
     _ =
       Logger.debug(
-        "Download of URL has completed: #{request.url} to file #{request.save_to} has completed."
+        "Download of URL has completed: #{request.uri} to file #{request.save_to} has completed."
       )
 
     _ = Logger.debug("Content length is: #{content_length}")
@@ -121,7 +122,7 @@ defmodule Cpc.Downloader do
     location = :proplists.get_value("location", headers)
     _ = Logger.debug("Redirected to: #{location}")
     # TODO detect redirect cycle.
-    init_get_request(%{request | url: location}, num_redirect)
+    init_get_request(%{request | uri: URI.parse(location)}, num_redirect)
   end
 
   def handle_success(headers, client, request = %Dload{}) do
@@ -140,9 +141,8 @@ defmodule Cpc.Downloader do
       end
 
     send(request.receiver, {:content_length, full_content_length})
-    path = url_without_host(request.url)
 
-    TableAccess.add("content_length", Path.basename(path), full_content_length)
+    TableAccess.add("content_length", Path.basename(request.uri.path), full_content_length)
 
     {:ok, file} = File.open(request.save_to, [:append, :raw])
 
@@ -198,7 +198,7 @@ defmodule Cpc.Downloader do
     end
   end
 
-  def init_get_request(request = %Dload{}, num_redirect \\ 0) do
+  def init_get_request(request = %Dload{uri: uri = %URI{}}, num_redirect \\ 0) do
     headers =
       case request.start_from do
         nil -> []
@@ -206,21 +206,20 @@ defmodule Cpc.Downloader do
         rs -> [{"Range", "bytes=#{rs}-"}]
       end
 
-    uri = URI.parse(to_string(request.url))
-    headers = [{"Host", to_string(uri.host)} | headers]
+    headers = [{"Host", uri.host} | headers]
 
-    _ = Logger.debug("GET #{inspect(request.url)} with headers #{inspect(headers)}")
+    _ = Logger.debug("GET #{inspect(uri)} with headers #{inspect(headers)}")
 
-    Logger.debug("Attempt to fetch file: #{request.url}")
+    Logger.debug("Attempt to fetch file: #{uri}")
 
-    case hackney_connect_dual_stack(request.url) do
+    case hackney_connect_dual_stack(uri) do
       {:ok, {_protocol, conn_ref}} ->
         hackney_request = {:get, uri.path, headers, ""}
         case :hackney.send_request(conn_ref, hackney_request) do
           {:error, reason} ->
             handle_failure(reason, conn_ref, request)
           {:ok, status, headers, ^conn_ref} ->
-          _ = Logger.debug("Status for url #{inspect request.url}: #{status}")
+          _ = Logger.debug("Status for url #{inspect uri}: #{status}")
           # TODO this nesting is too deep! refactor!
             case status do
               200 ->
@@ -322,11 +321,11 @@ defmodule Cpc.Downloader do
     )
   end
 
-  def handle_info(:init, {url, save_to, receiver, start_from}) do
+  def handle_info(:init, {uri = %URI{}, save_to, receiver, start_from}) do
     start_time = :erlang.system_time(:micro_seconds)
 
     request = %Dload{
-      url: url,
+      uri: uri,
       save_to: save_to,
       start_from: start_from,
       receiver: receiver,
@@ -337,20 +336,4 @@ defmodule Cpc.Downloader do
     {:stop, :normal, request}
   end
 
-  defp url_without_host(url) do
-    url |> to_string |> path_to_segments |> Enum.drop(-2) |> Enum.reverse() |> Path.join()
-  end
-
-  defp path_to_segments(path) do
-    [head | tail] = String.split(path, "/")
-    reverse_and_discard_empty(tail, [head])
-  end
-
-  defp reverse_and_discard_empty([], acc), do: acc
-  defp reverse_and_discard_empty([head], acc), do: [head | acc]
-  defp reverse_and_discard_empty(["" | tail], acc), do: reverse_and_discard_empty(tail, acc)
-
-  defp reverse_and_discard_empty([head | tail], acc) do
-    reverse_and_discard_empty(tail, [head | acc])
-  end
 end
