@@ -150,7 +150,6 @@ defmodule Cpc.Downloader do
     headers = Utils.headers_to_lower(headers)
     location = :proplists.get_value("location", headers)
     _ = Logger.debug("Redirected to: #{location}")
-    # TODO detect redirect cycle.
     init_get_request(%{request | uri: URI.parse(location)}, num_redirect)
   end
 
