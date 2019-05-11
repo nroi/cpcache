@@ -113,6 +113,35 @@ defmodule Cpc.Downloader do
     :ok
   end
 
+
+  def handle_result(status, headers, conn_ref, request = %Dload{}, num_redirect) do
+    case status do
+      200 ->
+        handle_success(headers, conn_ref, request)
+
+      206 ->
+        handle_success(headers, conn_ref, request)
+
+      301 ->
+        handle_redirect(headers, request, num_redirect + 1)
+
+      302 ->
+        handle_redirect(headers, request, num_redirect + 1)
+
+      303 ->
+        handle_redirect(headers, request, num_redirect + 1)
+
+      307 ->
+        handle_redirect(headers, request, num_redirect + 1)
+
+      308 ->
+        handle_redirect(headers, request, num_redirect + 1)
+
+      status ->
+        handle_failure(status, conn_ref, request)
+    end
+  end
+
   def handle_redirect(_headers, _request, 21) do
     raise "20 redirections exceeded."
   end
@@ -222,33 +251,8 @@ defmodule Cpc.Downloader do
           {:error, reason} ->
             handle_failure(reason, conn_ref, request)
           {:ok, status, headers, ^conn_ref} ->
-          _ = Logger.debug("Status for url #{inspect uri}: #{status}")
-          # TODO this nesting is too deep! refactor!
-            case status do
-              200 ->
-                handle_success(headers, conn_ref, request)
-
-              206 ->
-                handle_success(headers, conn_ref, request)
-
-              301 ->
-                handle_redirect(headers, request, num_redirect + 1)
-
-              302 ->
-                handle_redirect(headers, request, num_redirect + 1)
-
-              303 ->
-                handle_redirect(headers, request, num_redirect + 1)
-
-              307 ->
-                handle_redirect(headers, request, num_redirect + 1)
-
-              308 ->
-                handle_redirect(headers, request, num_redirect + 1)
-
-              status ->
-                handle_failure(status, conn_ref, request)
-            end
+            _ = Logger.debug("Status for url #{inspect uri}: #{status}")
+            handle_result(status, headers, conn_ref, request, num_redirect)
         end
       {:error, reason} ->
         handle_failure(reason, request)
