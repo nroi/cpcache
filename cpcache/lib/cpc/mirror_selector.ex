@@ -174,7 +174,8 @@ defmodule Cpc.MirrorSelector do
     # TODO make use of the timeout.
     with {:ok, {_protocol, conn_ref}} <- Downloader.hackney_connect_dual_stack(url) do
       req = {:head, "/", [], ""}
-      with  {:ok, status, _headers} <- :hackney.send_request(conn_ref, req) do
+
+      with {:ok, status, _headers} <- :hackney.send_request(conn_ref, req) do
         {:ok, status}
       end
     end
