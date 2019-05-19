@@ -1,5 +1,4 @@
 defmodule Cpc.ClientRequest do
-  @max_body_size 500_000
   @serializer_timeout "Timeout while waiting for serializer to reply."
   alias Cpc.ClientRequest, as: CR
   alias Cpc.Filewatcher
@@ -19,7 +18,6 @@ defmodule Cpc.ClientRequest do
             header_fields: [],
             # a map containing the relevant data extracted from above headers
             headers: %{},
-            # GET or POST
             request: nil,
             waiting_for_no_dependencies_left: false
 
@@ -553,75 +551,6 @@ defmodule Cpc.ClientRequest do
   end
 
   @impl true
-  def handle_info({:http, _, :http_eoh}, state = %CR{action: :recv_header, request: {:POST, hn}}) do
-    :ok = :inet.setopts(state.sock, packet: :raw)
-    new_state = %{state | headers: extract_headers(state.header_fields)}
-
-    if new_state.headers.continue do
-      :ok = :gen_tcp.send(state.sock, header_from_code(100))
-    end
-
-    content_length = new_state.headers.content_length
-
-    maybe_content =
-      cond do
-        content_length > @max_body_size ->
-          {:error, :body_too_large}
-
-        content_length > 0 ->
-          {:ok, content} = :gen_tcp.recv(new_state.sock, content_length, 500)
-          {:ok, content}
-
-        content_length == 0 ->
-          {:ok, ""}
-      end
-
-    credentials = {Map.get(new_state.headers, :hmac), Map.get(new_state.headers, :timestamp)}
-
-    authorization_status =
-      with {:ok, content} <- maybe_content do
-        case credentials do
-          {nil, _} -> {:error, :hmac_missing}
-          {_, nil} -> {:error, :timestamp_missing}
-          {hmac, timestamp} -> authorize({hmac, timestamp}, content)
-        end
-      end
-
-    case authorization_status do
-      {:error, :body_too_large} ->
-        _ = Logger.warn("Body exceeded max size of #{@max_body_size}.")
-        :ok = :gen_tcp.send(new_state.sock, header_from_code(413))
-        :ok = :gen_tcp.close(new_state.sock)
-
-      {:error, reason} ->
-        _ = Logger.warn("Authorization failed: #{reason}")
-        :ok = :gen_tcp.send(new_state.sock, header_from_code(403))
-        :ok = :gen_tcp.close(new_state.sock)
-
-      {:ok, content} ->
-        _ = Logger.debug("Authorization succeeded.")
-        :ok = :gen_tcp.send(new_state.sock, header_from_code(200))
-        :ok = :gen_tcp.close(new_state.sock)
-        _ = Logger.debug("Write file for host #{hn}")
-        path = Cpc.Utils.wanted_packages_dir()
-
-        case File.mkdir_p(path) do
-          :ok -> :ok
-          {:error, :eexist} -> :ok
-        end
-
-        filename = Path.join(path, hn)
-        Logger.debug("Attempt to write file: #{filename}")
-        {:ok, file} = File.open(filename, [:write])
-        :ok = IO.write(file, content)
-        :ok = File.close(file)
-        Logger.info("Successfully written file #{filename} for host #{hn}")
-    end
-
-    {:stop, :normal, new_state}
-  end
-
-  @impl true
   def handle_info({:http, _, :http_eoh}, state = %CR{action: :recv_header, request: {:GET, uri}}) do
     :ok = :inet.setopts(state.sock, active: :once)
     _ = Logger.debug("Received end of header.")
@@ -671,17 +600,6 @@ defmodule Cpc.ClientRequest do
             raise @serializer_timeout
         end
     end
-  end
-
-  @impl true
-  def handle_info(
-        {:http, _, {:http_request, :POST, {:abs_path, "/" <> hn}, _}},
-        state = %CR{action: :recv_header}
-      ) do
-    :ok = :inet.setopts(state.sock, active: :once)
-    _ = Logger.debug("Received POST request for hostname #{hn}")
-    init_state = init_state(state.sock)
-    {:noreply, %{init_state | request: {:POST, hn}}}
   end
 
   @impl true
