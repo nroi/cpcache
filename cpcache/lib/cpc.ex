@@ -96,7 +96,7 @@ defmodule Cpc do
 
     children = [
       supervisor(Cpc.ArchSupervisor, []),
-      supervisor(Cpc.AcceptorSupervisor, []),
+      supervisor(Cpc.ClientRequestSupervisor, []),
       {Morbo.ResourcePool, get_morbo_init_state()}
     ]
 

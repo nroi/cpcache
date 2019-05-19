@@ -1,4 +1,4 @@
-defmodule Cpc.AcceptorSupervisor do
+defmodule Cpc.ClientRequestSupervisor do
   use Supervisor
 
   def start_link() do

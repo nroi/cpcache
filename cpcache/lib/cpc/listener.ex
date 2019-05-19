@@ -32,7 +32,7 @@ defmodule Cpc.Listener do
     _ = Logger.debug("Waiting for a client to accept the connection.")
     {:ok, sock} = :gen_tcp.accept(listening_sock)
     _ = Logger.debug("New connection, start new child.")
-    {:ok, child_pid} = Supervisor.start_child(Cpc.AcceptorSupervisor, [sock])
+    {:ok, child_pid} = Supervisor.start_child(Cpc.ClientRequestSupervisor, [sock])
     # If the socket has already received any messages, they will be safely transferred
     # to the new owner. Note that creating a socket with active mode and then
     # changing the controlling process is supposed to work according to the
