@@ -52,6 +52,13 @@ defmodule Cpc.Downloader do
     {:ok, pid} = start_link(url, save_to, self(), start_from)
     ref = Process.monitor(pid)
 
+    # TODO remove this line, just for testing purposes.
+    # {:new_spawn, result} = Morbo.ResourcePool.resource_request("https://v4.ident.me")
+    case Morbo.ResourcePool.resource_request("http://ip.xnet.space") do
+      {:new_spawn, _result} -> :ok
+      {:existing_spawn, _result} -> :ok
+    end
+
     receive do
       {:DOWN, ^ref, _, _, reason} ->
         # Notice that we raise instead of just returning {:error, reason}.
@@ -309,9 +316,10 @@ defmodule Cpc.Downloader do
     end
   end
 
+  def connect_hackney_inet(), do: &connect_hackney(&1, &2, :inet, &3, &4)
+  def connect_hackney_inet6(), do: &connect_hackney(&1, &2, :inet6, &3, &4)
+
   def hackney_connect_dual_stack(url) do
-    connect_hackney_inet = &connect_hackney(&1, &2, :inet, &3, &4)
-    connect_hackney_inet6 = &connect_hackney(&1, &2, :inet6, &3, &4)
 
     transfer_ownership_to = fn pid, {:ok, {_protocol, conn_ref}} ->
       :ok = :hackney.controlling_process(conn_ref, pid)
@@ -319,10 +327,19 @@ defmodule Cpc.Downloader do
 
     Eyepatch.resolve(
       url,
-      connect_hackney_inet,
-      connect_hackney_inet6,
+      connect_hackney_inet(),
+      connect_hackney_inet6(),
       &:inet.getaddrs/2,
       transfer_ownership_to
     )
   end
+
+  def transfer_ownership_to(new_pid, {:ok, {_protocol, conn_ref}}) do
+    :hackney.controlling_process(conn_ref, new_pid)
+  end
+
+  def transfer_ownership_to(_new_pid, {:error, _}) do
+    :ok
+  end
+
 end

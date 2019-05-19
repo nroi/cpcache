@@ -60,6 +60,35 @@ defmodule Cpc do
     TableAccess.create_table("mirrors_status")
   end
 
+  defp close_spawn({:ok, {_protocol, conn_ref}}) do
+    case :hackney.close(conn_ref) do
+      :ok -> Logger.debug("Connection closed successfully.")
+      :req_not_found -> Logger.warn("Error while closing connection: req_not_found")
+    end
+  end
+
+  defp get_morbo_init_state() do
+    %Morbo.ResourcePool{
+      seed_to_spawn: &seed_to_spawn/1,
+      transfer_ownership_to: &Cpc.Downloader.transfer_ownership_to/2,
+      close_spawn: &close_spawn/1,
+      resources: [],
+      remove_resource_after_millisecs: 6000,
+      owner_after_release: Cpc.Downloader
+    }
+  end
+
+  defp seed_to_spawn(hostname) do
+    Eyepatch.resolve(
+      hostname,
+      Cpc.Downloader.connect_hackney_inet(),
+      Cpc.Downloader.connect_hackney_inet6(),
+      &:inet.getaddrs/2,
+      &Cpc.Downloader.transfer_ownership_to/2
+    )
+  end
+
+
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
     init_config()
@@ -67,7 +96,8 @@ defmodule Cpc do
 
     children = [
       supervisor(Cpc.ArchSupervisor, []),
-      supervisor(Cpc.AcceptorSupervisor, [])
+      supervisor(Cpc.AcceptorSupervisor, []),
+      {Morbo.ResourcePool, get_morbo_init_state()}
     ]
 
     opts = [strategy: :one_for_one, name: __MODULE__]

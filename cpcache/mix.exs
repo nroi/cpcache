@@ -20,7 +20,10 @@ defmodule Cpc.Mixfile do
   #
   # Type "mix help compile.app" for more information
   def application do
-    [applications: [:logger, :inets, :ssl, :hackney, :toml, :jason, :eyepatch], mod: {Cpc, []}]
+    [
+      applications: [:logger, :inets, :ssl, :hackney, :toml, :jason, :eyepatch, :morbo],
+      mod: {Cpc, []}
+    ]
   end
 
   # Dependencies can be Hex packages:
@@ -38,7 +41,8 @@ defmodule Cpc.Mixfile do
       {:hackney, "~> 1.15"},
       {:toml, "~> 0.5.2"},
       {:jason, "~> 1.1"},
-      {:eyepatch, git: "https://github.com/nroi/eyepatch.git", tag: "v0.1.11"}
+      {:eyepatch, git: "https://github.com/nroi/eyepatch.git", tag: "v0.1.11"},
+      {:morbo, git: "https://github.com/nroi/morbo.git", tag: "0.1.3"}
     ]
   end
 end

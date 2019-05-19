@@ -105,19 +105,21 @@ defmodule CpcTest do
     # Skip the first file: It is already in cache, and we want to test the download behavior.
     [_already_downloaded | files_sorted_by_size] = get_files_sorted_by_size(repo)
 
-    latencies = for {_filename, ^repo, filemap} <- Enum.take(files_sorted_by_size, 20) do
-      filename = filemap["FILENAME"]
-      url = url_from_filename(repo, filename)
-      digest_should = String.upcase(filemap["SHA256SUM"])
-      {microsecs, digest_is} = :timer.tc(__MODULE__, :download_and_digest, [url])
-      Logger.debug("Time required to download #{filename}: #{microsecs / 1000} ms")
-      assert digest_is == digest_should
-      microsecs
-    end
+    latencies =
+      for {_filename, ^repo, filemap} <- Enum.take(files_sorted_by_size, 20) do
+        filename = filemap["FILENAME"]
+        url = url_from_filename(repo, filename)
+        digest_should = String.upcase(filemap["SHA256SUM"])
+        {microsecs, digest_is} = :timer.tc(__MODULE__, :download_and_digest, [url])
+        Logger.debug("Time required to download #{filename}: #{microsecs / 1000} ms")
+        assert digest_is == digest_should
+        microsecs
+      end
+
     sorted_latencies = Enum.sort(latencies)
     Logger.error("Average latency: #{Enum.sum(sorted_latencies) / Enum.count(sorted_latencies)}")
     Logger.error("Median latency: #{Enum.at(sorted_latencies, 10)}")
-    Logger.error("All latencies: #{inspect latencies}")
+    Logger.error("All latencies: #{inspect(latencies)}")
     Application.put_env(:cpcache, :throttle_downloads, prev_value)
   end
 
