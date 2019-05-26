@@ -151,9 +151,6 @@ defmodule Cpc.ClientRequest do
       {:http_header, _, "Timestamp", _, timestamp}, acc ->
         Map.put(acc, :timestamp, String.to_integer(timestamp))
 
-      {:http_header, _, :Authorization, _, hmac}, acc ->
-        Map.put(acc, :hmac, hmac)
-
       {:http_header, _, :Range, _, range}, acc ->
         Map.put(
           acc,
