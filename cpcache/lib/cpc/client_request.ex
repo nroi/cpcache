@@ -100,44 +100,6 @@ defmodule Cpc.ClientRequest do
     end
   end
 
-  defp key_from_config() do
-    case :ets.lookup(:cpc_config, :recv_packages) do
-      [recv_packages: %{"key" => sk}] -> {:ok, sk}
-      _ -> {:error, :key_not_found}
-    end
-  end
-
-  defp validate_timestamp(timestamp) do
-    current_time =
-      case :erlang.timestamp() do
-        {megasecs, secs, _} -> megasecs * 1_000_000 + secs
-      end
-
-    if current_time - timestamp < 60 do
-      :ok
-    else
-      {:error, :timestamp_expired}
-    end
-  end
-
-  defp validate_hmac(content, hmac, key, timestamp) do
-    to_hash = content <> to_string(timestamp) <> "\n"
-    our_hmac = Base.encode16(:crypto.hmac(:sha256, key, to_hash))
-
-    if String.downcase(hmac) == String.downcase(our_hmac) do
-      :ok
-    else
-      {:error, :invalid_hmac}
-    end
-  end
-
-  def authorize(_auth = {hmac, timestamp}, content) do
-    with :ok <- validate_timestamp(timestamp),
-         {:ok, key} <- key_from_config(),
-         :ok <- validate_hmac(content, hmac, key, timestamp),
-         do: {:ok, content}
-  end
-
   defp extract_headers(headers) do
     init_map = %{continue: false, range_start: nil}
 
@@ -149,6 +111,7 @@ defmodule Cpc.ClientRequest do
         Map.put(acc, :continue, true)
 
       {:http_header, _, "Timestamp", _, timestamp}, acc ->
+        # TODO is this actually used?
         Map.put(acc, :timestamp, String.to_integer(timestamp))
 
       {:http_header, _, :Range, _, range}, acc ->
