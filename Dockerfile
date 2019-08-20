@@ -2,7 +2,6 @@ FROM elixir
 
 EXPOSE 7070
 
-
 RUN useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache && \
     mkdir -p /var/cache/cpcache/state && \
     mkdir /etc/cpcache && \
