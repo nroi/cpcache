@@ -52,13 +52,6 @@ defmodule Cpc.Downloader do
     {:ok, pid} = start_link(url, save_to, self(), start_from)
     ref = Process.monitor(pid)
 
-    # TODO remove this line, just for testing purposes.
-    # {:new_spawn, result} = Morbo.ResourcePool.resource_request("https://v4.ident.me")
-    case Morbo.ResourcePool.resource_request("http://ip.xnet.space") do
-      {:new_spawn, _result} -> :ok
-      {:existing_spawn, _result} -> :ok
-    end
-
     receive do
       {:DOWN, ^ref, _, _, reason} ->
         # Notice that we raise instead of just returning {:error, reason}.
