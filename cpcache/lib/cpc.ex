@@ -30,6 +30,7 @@ defmodule Cpc do
     :ets.insert(:cpc_config, {:mirrors, get_or_raise(config, "mirrors_predefined")})
     :ets.insert(:cpc_config, {:mirrors_blacklist, get_or_raise(config, "mirrors_blacklist")})
     :ets.insert(:cpc_config, {:recv_packages, config["recv_packages"]})
+    :ets.insert(:cpc_config, {:localrepos, Map.get(config, "localrepos", [])})
 
     case get_or_raise(config, "mirror_selection_method") do
       "auto" ->
@@ -87,7 +88,6 @@ defmodule Cpc do
       &Cpc.Downloader.transfer_ownership_to/2
     )
   end
-
 
   def start(_type, _args) do
     import Supervisor.Spec, warn: false

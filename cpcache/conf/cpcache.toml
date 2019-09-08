@@ -28,6 +28,11 @@ mirrors_predefined = []
 # unstable, add it to this list.
 mirrors_blacklist = []
 
+localrepos = [
+    # If you use local repositories such as aurto, add them here.
+    "aurto",
+]
+
 # Various settings that apply if mirror_selection_method has been set to "auto".
 [mirrors_auto]
     # only use mirrors with HTTPS support.

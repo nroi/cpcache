@@ -77,7 +77,6 @@ defmodule Cpc.Downloader do
     end
   end
 
-
   def bandwidth_to_human_readable(_bytes, microseconds) when microseconds <= 0 do
     raise "duration must be positive to provide meaningful values"
   end
@@ -313,7 +312,6 @@ defmodule Cpc.Downloader do
   def connect_hackney_inet6(), do: &connect_hackney(&1, &2, :inet6, &3, &4)
 
   def hackney_connect_dual_stack(url) do
-
     transfer_ownership_to = fn pid, {:ok, {_protocol, conn_ref}} ->
       :ok = :hackney.controlling_process(conn_ref, pid)
     end
@@ -334,5 +332,4 @@ defmodule Cpc.Downloader do
   def transfer_ownership_to(_new_pid, {:error, _}) do
     :ok
   end
-
 end

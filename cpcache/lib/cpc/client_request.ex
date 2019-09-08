@@ -39,6 +39,12 @@ defmodule Cpc.ClientRequest do
     "Connection closed by client during data transfer. File #{filename} is incomplete."
   end
 
+  defp is_localrepo(uri) do
+    [localrepos: localrepos] = :ets.lookup(:cpc_config, :localrepos)
+    [repo | _] = Path.split(uri)
+    Enum.member?(localrepos, repo)
+  end
+
   defp get_filename(uri) do
     cache_dir =
       case :ets.lookup(:cpc_config, :cache_directory) do
@@ -49,13 +55,14 @@ defmodule Cpc.ClientRequest do
     dirname = Path.dirname(filename)
     basename = Path.basename(filename)
     is_database = String.ends_with?(basename, ".db")
+    is_localrepo = is_localrepo(uri)
 
     {partial_file_exists, complete_file_exists} =
-      case is_database do
-        true ->
+      case {is_database, is_localrepo} do
+        {true, false} ->
           {false, false}
 
-        false ->
+        _ ->
           case File.stat(Path.join(dirname, basename)) do
             {:error, :enoent} ->
               {false, false}
@@ -64,38 +71,48 @@ defmodule Cpc.ClientRequest do
               {false, false}
 
             {:ok, %File.Stat{size: size}} ->
-              case content_length(uri) do
-                {:ok, ^size} ->
-                  {true, true}
+              if is_localrepo do
+                {true, true}
+              else
+                case content_length(uri) do
+                  {:ok, ^size} ->
+                    {true, true}
 
-                {:ok, cl} when cl > size ->
-                  {true, false}
+                  {:ok, cl} when cl > size ->
+                    {true, false}
 
-                {:error, :not_found} ->
-                  # The file exists, but we cannot retrieve its content length: This can happen if
-                  # the remote server doesn't have this file anymore (i.e., the file is outdated)
-                  # and its content-length is not saved in the database for some reason.
-                  # In this case, we want to reply 404, rather than sending a
-                  # possibly incomplete file.
-                  {false, false}
+                  {:error, :not_found} ->
+                    # The file exists, but we cannot retrieve its content length: This can happen if
+                    # the remote server doesn't have this file anymore (i.e., the file is outdated)
+                    # and its content-length is not saved in the database for some reason.
+                    # In this case, we want to reply 404, rather than sending a
+                    # possibly incomplete file.
+                    {false, false}
+                end
               end
           end
       end
 
-    case {is_database, complete_file_exists, partial_file_exists} do
-      {true, _, _} ->
+    case {is_localrepo, is_database, complete_file_exists, partial_file_exists} do
+      {true, _, true, _} ->
+        {:complete_file, filename}
+
+      {true, _, false, _} ->
+        {:not_found, Path.join([dirname, basename])}
+
+      {false, true, _, _} ->
         # no attempt is made to select the best mirror: since we use redirects for database
         # files, we just use the first mirror.
         [mirror | _] = MirrorSelector.get_all()
         {:database, Path.join(mirror, uri)}
 
-      {false, false, false} ->
+      {false, false, false, false} ->
         {:not_found, Path.join([dirname, basename])}
 
-      {false, true, _} ->
+      {false, false, true, _} ->
         {:complete_file, filename}
 
-      {false, false, true} ->
+      {false, false, false, true} ->
         {:partial_file, Path.join([dirname, basename])}
     end
   end
