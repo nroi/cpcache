@@ -77,6 +77,46 @@ Server = http://myhost.local:7070/$repo/os/$arch
 cpcache expects a configuration file in `/etc/cpcache/cpcache.toml`. You can copy the example
 configuration file from `conf/cpcache.toml` to `/etc/cpcache/cpcache.toml` and adapt it as required.
 
+### Local repositories for pre-built AUR packages
+Pacman supports custom package repositories where both the package files and the database files reside on the local filesystem.
+This functionality is used by tools such as [aurto](https://github.com/alexheretic/aurto) which allow you to maintain a
+repository of packages built from AUR.
+cpcache can be made aware of such local repositories with the `localrepos` variable in its toml config: it will then serve all requests to this repository from the local filesystem. So if you want to make a local repository available on your LAN, you may find this setting more convenient than setting up yet another HTTP Server.
+
+We'll describe how to use the `localrepos` setting to make packages built with aurto available on your LAN (although this setting
+can be used for other local repositories as well). We assume that aurto is installed on the same device that's also
+running cpcache:
+1. Edit your `/etc/cpcache/cpcache.toml` to include the name of the local repository. If the file already contains a
+variable named `localrepos`, change it as desired. If no variable named `localrepos` is included, add the following to the **top** of the file:
+
+   ```toml
+   localrepos = ["aurto"]
+   ```
+
+2. cpcache expects the files of the localrepo in `/var/cache/cpcache/pkg/aurto`, so let's just symlink the default directory of aurto to this directory:
+
+   ```bash
+   sudo ln -s /var/cache/pacman/aurto/ /var/cache/cpcache/pkg/ 
+   ```
+
+3. Every client needs to be acquainted with the new repository. aurto is doing this by default by adapting your `pacman.conf`
+and creating a `/etc/pacman.d/aurto`, so no changes are required on the device where aurto is installed. On each client,
+append the following to `pacman.conf`:
+
+    ```
+    Include = /etc/pacman.d/aurto
+    ```
+    and create the file `/etc/pacman.d/aurto`: it should point to the same host as defined in your mirrorlist,
+    but without the trailing `/os/$arch`:
+    ```
+    [aurto]
+    SigLevel = Optional TrustAll
+    Server = http://myhost.local:7070/$repo
+    ```
+
+Verify your settings by running `pacman -Syu`: Pacman should successfully synchronize all package databases, including aurto.
+You can now use aurto to build packages on the cpcache server, and then download them on all clients without having to build
+them again.
 
 ## Setup with NGINX
 
