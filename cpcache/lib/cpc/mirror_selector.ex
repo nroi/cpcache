@@ -127,7 +127,7 @@ defmodule Cpc.MirrorSelector do
   end
 
   @impl true
-  def handle_info(m = {:ssl_closed, {:sslsocket, _, _}}, state) do
+  def handle_info({:ssl_closed, {:sslsocket, _, _}}, state) do
     # TODO need to find out where this message originates from.
     # Could be due to a bug in hackney: https://github.com/benoitc/hackney/issues/464
     # We should be able to remove this clause if we switch from hackney to mint.
