@@ -30,7 +30,7 @@ mirrors_blacklist = []
 
 localrepos = [
     # If you use local repositories such as aurto, add them here.
-    "aurto",
+    # "aurto",
 ]
 
 # Various settings that apply if mirror_selection_method has been set to "auto".
