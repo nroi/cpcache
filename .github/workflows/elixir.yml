@@ -13,6 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Install Dependencies
+      working-directory: ./cpcache
       run: |
         mix local.rebar --force
         mix local.hex --force
