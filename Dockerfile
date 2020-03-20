@@ -1,33 +1,30 @@
-FROM elixir
+#build cpcache
+FROM elixir as build
 
-EXPOSE 7070
+WORKDIR /cpcache
 
-RUN useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache && \
-    mkdir -p /var/cache/cpcache/state && \
-    mkdir /etc/cpcache && \
-    mkdir -p /var/cache/cpcache/pkg/community/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/community-staging/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/community-testing/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/core/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/extra/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/gnome-unstable/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/kde-unstable/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/multilib/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/multilib-testing/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/staging/os/x86_64 && \
-    mkdir -p /var/cache/cpcache/pkg/testing/os/x86_64 && \
-    chown -R cpcache:cpcache "/var/cache/cpcache"
+COPY cpcache .
 
-WORKDIR /var/lib/cpcache
-
-COPY --chown=cpcache:cpcache cpcache /var/lib/cpcache/
-COPY cpcache/conf/cpcache.toml /etc/cpcache/
-
-USER cpcache
+ARG MIX_ENV=prod
 RUN mix local.hex --force && \
     mix local.rebar --force && \
     mix deps.get && \
-    mix compile
+    mix release
 
-ENV MIX_ENV=prod
-ENTRYPOINT iex -S mix
+# package it inside debian
+FROM debian:buster-slim
+
+RUN useradd -r -s /bin/bash -m -d /var/lib/cpcache cpcache && \
+    mkdir -p /var/cache/cpcache && \
+    chown -R cpcache:cpcache /var/cache/cpcache && \
+    apt-get update && \
+    apt-get install -y libssl1.1
+
+COPY --from=build --chown=cpcache:cpcache /cpcache/_build/prod/rel/cpcache /var/lib/cpcache
+COPY cpcache/conf/cpcache.toml /etc/cpcache/
+COPY entrypoint.sh /usr/local/bin/
+
+USER cpcache
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
