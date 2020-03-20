@@ -1,8 +1,11 @@
-version: '3.6'
+version: '3.7'
 services:
   cpcache:
     build: .
-    image: cpcache
-    network_mode: host
-    stdin_open: true
-    tty: true
+    ports:
+      - 7070:7070
+    volumes:
+      - cpcache_cache:/var/cache/cpcache
+
+volumes:
+  cpcache_cache:
