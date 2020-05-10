@@ -1,5 +1,7 @@
 # cpcache
 
+***cpcache has a successor: [flexo](https://github.com/nroi/flexo). Flexo is much more lightweight than cpcache, so please try it out. I will focus my efforts on flexo, so please don't expect any new functionality to be added to cpcache.***
+
 cpcache is a central cache for pacman, the package manager of Arch Linux. It requires little
 configuration, does not bother you with 404 errors and it allows you to utilize the full bandwidth
 even as multiple clients download the same file at the same time.
